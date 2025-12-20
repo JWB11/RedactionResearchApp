@@ -1,0 +1,411 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0F15E70853774892889BA2F3 /* RedactionResearchApp/Helpers/ImageThumbnailGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F09708ABB58496184B11DF7 /* RedactionResearchApp/Helpers/ImageThumbnailGenerator.swift */; };
+		1EDF09E0C81349568ADD4A7F /* RedactionResearchApp/App/RedactionResearchAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25EC781F56D54B39B144A8EB /* RedactionResearchApp/App/RedactionResearchAppApp.swift */; };
+		2D42568897B5468D904AC81A /* RedactionResearchApp/UI/ProgressScratchpadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44FC7DA8E3004BC493B0A9DF /* RedactionResearchApp/UI/ProgressScratchpadView.swift */; };
+		3AB028C9581B468A84899A7D /* RedactionResearchApp/Services/IndexingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ED079D1D2494A3D9E4653A1 /* RedactionResearchApp/Services/IndexingService.swift */; };
+		4E3D0315182D4AA18D875DEA /* RedactionResearchApp/UI/DocumentListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664A099D42C3448F858B4B8D /* RedactionResearchApp/UI/DocumentListView.swift */; };
+		5033CB0FD60F45DAB6ACCF9B /* RedactionResearchApp/Utils/HashUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = B67E6F4EEEB6455786A1A66E /* RedactionResearchApp/Utils/HashUtils.swift */; };
+		55864EEFB4864AF4A261DADB /* RedactionResearchApp/Resources/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1FDA52A1C81A49EBA12012CF /* RedactionResearchApp/Resources/Assets.xcassets */; };
+		5D28BFC1B7EC496C9B9AD49A /* RedactionResearchApp/UI/CompareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F91AA7BC7544BBD81378610 /* RedactionResearchApp/UI/CompareView.swift */; };
+		70C1FEEDBD424E84A8788546 /* RedactionResearchApp/Services/AIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB1210CE19554F67BA8E4E3A /* RedactionResearchApp/Services/AIService.swift */; };
+		725B89BAC055408DA9EEA05E /* RedactionResearchApp/App/SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39C0D5A098564C40ADE872AD /* RedactionResearchApp/App/SettingsView.swift */; };
+		758129934AB648C0A5D422FB /* RedactionResearchApp/App/ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 197C3651FE30484DA1FFE77A /* RedactionResearchApp/App/ContentView.swift */; };
+		75C4BD23050149A0B60C354E /* RedactionResearchApp/Models/CaseModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34926C13F3FF4A7A878D8AB4 /* RedactionResearchApp/Models/CaseModel.swift */; };
+		84708E15B1C94892847B02EC /* RedactionResearchApp/Utils/ZipUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92F6B7F69E6443C5AE7A8122 /* RedactionResearchApp/Utils/ZipUtils.swift */; };
+		86CC13F1D2DB4476A55D40CE /* RedactionResearchApp/UI/DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D136D50406F441809D12F6E8 /* RedactionResearchApp/UI/DashboardView.swift */; };
+		8A4E99212EF74C6C00189EB4 /* DuplicateAnalysisFinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A4E991F2EF7498F00189EB4 /* DuplicateAnalysisFinder.swift */; };
+		938174C465E944EA953B849B /* RedactionResearchApp/Services/FileImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05EC1A57E99F49F798AE8E03 /* RedactionResearchApp/Services/FileImportService.swift */; };
+		9E0CA04AD5B84F029CC70A4F /* RedactionResearchApp/UI/SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F6FEBD24E8D41D0880F273C /* RedactionResearchApp/UI/SidebarView.swift */; };
+		C2D7A7BE32C54142AC30D5E4 /* RedactionResearchApp/Models/DocumentModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EA31EBDF7404303A74EA686 /* RedactionResearchApp/Models/DocumentModel.swift */; };
+		E72B25E33E874B5498B5F83D /* RedactionResearchApp/Helpers/PDFTextExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F5A9813CAF74E85BDE542D8 /* RedactionResearchApp/Helpers/PDFTextExtractor.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		05EC1A57E99F49F798AE8E03 /* RedactionResearchApp/Services/FileImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/Services/FileImportService.swift; sourceTree = "<group>"; };
+		197C3651FE30484DA1FFE77A /* RedactionResearchApp/App/ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/App/ContentView.swift; sourceTree = "<group>"; };
+		1EA31EBDF7404303A74EA686 /* RedactionResearchApp/Models/DocumentModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/Models/DocumentModel.swift; sourceTree = "<group>"; };
+		1FDA52A1C81A49EBA12012CF /* RedactionResearchApp/Resources/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = RedactionResearchApp/Resources/Assets.xcassets; sourceTree = "<group>"; };
+		25EC781F56D54B39B144A8EB /* RedactionResearchApp/App/RedactionResearchAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/App/RedactionResearchAppApp.swift; sourceTree = "<group>"; };
+		34926C13F3FF4A7A878D8AB4 /* RedactionResearchApp/Models/CaseModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/Models/CaseModel.swift; sourceTree = "<group>"; };
+		39C0D5A098564C40ADE872AD /* RedactionResearchApp/App/SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/App/SettingsView.swift; sourceTree = "<group>"; };
+		44FC7DA8E3004BC493B0A9DF /* RedactionResearchApp/UI/ProgressScratchpadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/UI/ProgressScratchpadView.swift; sourceTree = "<group>"; };
+		4F09708ABB58496184B11DF7 /* RedactionResearchApp/Helpers/ImageThumbnailGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/Helpers/ImageThumbnailGenerator.swift; sourceTree = "<group>"; };
+		5F91AA7BC7544BBD81378610 /* RedactionResearchApp/UI/CompareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/UI/CompareView.swift; sourceTree = "<group>"; };
+		664A099D42C3448F858B4B8D /* RedactionResearchApp/UI/DocumentListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/UI/DocumentListView.swift; sourceTree = "<group>"; };
+		6ED079D1D2494A3D9E4653A1 /* RedactionResearchApp/Services/IndexingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/Services/IndexingService.swift; sourceTree = "<group>"; };
+		7F5A9813CAF74E85BDE542D8 /* RedactionResearchApp/Helpers/PDFTextExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/Helpers/PDFTextExtractor.swift; sourceTree = "<group>"; };
+		8A4E991F2EF7498F00189EB4 /* DuplicateAnalysisFinder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateAnalysisFinder.swift; sourceTree = "<group>"; };
+		8F6FEBD24E8D41D0880F273C /* RedactionResearchApp/UI/SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/UI/SidebarView.swift; sourceTree = "<group>"; };
+		92F6B7F69E6443C5AE7A8122 /* RedactionResearchApp/Utils/ZipUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/Utils/ZipUtils.swift; sourceTree = "<group>"; };
+		B67E6F4EEEB6455786A1A66E /* RedactionResearchApp/Utils/HashUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/Utils/HashUtils.swift; sourceTree = "<group>"; };
+		C4BF31D4285646D7B3F55966 /* RedactionResearchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RedactionResearchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D136D50406F441809D12F6E8 /* RedactionResearchApp/UI/DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/UI/DashboardView.swift; sourceTree = "<group>"; };
+		EB1210CE19554F67BA8E4E3A /* RedactionResearchApp/Services/AIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionResearchApp/Services/AIService.swift; sourceTree = "<group>"; };
+		F709FA6B469F49EA80F8AB25 /* RedactionResearchApp/Resources/Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = RedactionResearchApp/Resources/Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		3DD4643FC48C4C42A16D9536 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		130893565BCE4D3AB00DCA73 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				25EC781F56D54B39B144A8EB /* RedactionResearchApp/App/RedactionResearchAppApp.swift */,
+				197C3651FE30484DA1FFE77A /* RedactionResearchApp/App/ContentView.swift */,
+				39C0D5A098564C40ADE872AD /* RedactionResearchApp/App/SettingsView.swift */,
+			);
+			name = App;
+			sourceTree = "<group>";
+		};
+		504FFBCF2F2F49E4A058FFA2 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				8F6FEBD24E8D41D0880F273C /* RedactionResearchApp/UI/SidebarView.swift */,
+				44FC7DA8E3004BC493B0A9DF /* RedactionResearchApp/UI/ProgressScratchpadView.swift */,
+				D136D50406F441809D12F6E8 /* RedactionResearchApp/UI/DashboardView.swift */,
+				664A099D42C3448F858B4B8D /* RedactionResearchApp/UI/DocumentListView.swift */,
+				5F91AA7BC7544BBD81378610 /* RedactionResearchApp/UI/CompareView.swift */,
+			);
+			name = UI;
+			sourceTree = "<group>";
+		};
+		6544D5209DCE4823B06DAFAA = {
+			isa = PBXGroup;
+			children = (
+				130893565BCE4D3AB00DCA73 /* App */,
+				504FFBCF2F2F49E4A058FFA2 /* UI */,
+				C76C5779A98C4116ADAAADB3 /* Services */,
+				8D22090CB0624CEFA9F064AA /* Models */,
+				D3FD3405386549C18E53DFFD /* Utils */,
+				83BBA52D8D2D45C89DA245C3 /* Helpers */,
+				6A21E5F627B349C594D4F8EE /* Resources */,
+				F8A16D87A8144531949E7423 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		6A21E5F627B349C594D4F8EE /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				F709FA6B469F49EA80F8AB25 /* RedactionResearchApp/Resources/Info.plist */,
+				1FDA52A1C81A49EBA12012CF /* RedactionResearchApp/Resources/Assets.xcassets */,
+			);
+			name = Resources;
+			sourceTree = "<group>";
+		};
+		83BBA52D8D2D45C89DA245C3 /* Helpers */ = {
+			isa = PBXGroup;
+			children = (
+				7F5A9813CAF74E85BDE542D8 /* RedactionResearchApp/Helpers/PDFTextExtractor.swift */,
+				4F09708ABB58496184B11DF7 /* RedactionResearchApp/Helpers/ImageThumbnailGenerator.swift */,
+			);
+			name = Helpers;
+			sourceTree = "<group>";
+		};
+		8D22090CB0624CEFA9F064AA /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				34926C13F3FF4A7A878D8AB4 /* RedactionResearchApp/Models/CaseModel.swift */,
+				1EA31EBDF7404303A74EA686 /* RedactionResearchApp/Models/DocumentModel.swift */,
+			);
+			name = Models;
+			sourceTree = "<group>";
+		};
+		C76C5779A98C4116ADAAADB3 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				8A4E991F2EF7498F00189EB4 /* DuplicateAnalysisFinder.swift */,
+				05EC1A57E99F49F798AE8E03 /* RedactionResearchApp/Services/FileImportService.swift */,
+				6ED079D1D2494A3D9E4653A1 /* RedactionResearchApp/Services/IndexingService.swift */,
+				EB1210CE19554F67BA8E4E3A /* RedactionResearchApp/Services/AIService.swift */,
+			);
+			name = Services;
+			sourceTree = "<group>";
+		};
+		D3FD3405386549C18E53DFFD /* Utils */ = {
+			isa = PBXGroup;
+			children = (
+				B67E6F4EEEB6455786A1A66E /* RedactionResearchApp/Utils/HashUtils.swift */,
+				92F6B7F69E6443C5AE7A8122 /* RedactionResearchApp/Utils/ZipUtils.swift */,
+			);
+			name = Utils;
+			sourceTree = "<group>";
+		};
+		F8A16D87A8144531949E7423 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C4BF31D4285646D7B3F55966 /* RedactionResearchApp.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		894897AE266B428889BF4423 /* RedactionResearchApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E30C7A074B14DDA9C86669D /* Build configuration list for PBXNativeTarget "RedactionResearchApp" */;
+			buildPhases = (
+				7094BCB9FDA64D0AAFA4E4EC /* Sources */,
+				3DD4643FC48C4C42A16D9536 /* Frameworks */,
+				999EE468488B4EA5B201CE9F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RedactionResearchApp;
+			productName = RedactionResearchApp;
+			productReference = C4BF31D4285646D7B3F55966 /* RedactionResearchApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		BA5BC93BAB864A82A7765A14 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2620;
+			};
+			buildConfigurationList = 72CE6BFA54E548F288EAD2A6 /* Build configuration list for PBXProject "RedactionResearchApp" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 6544D5209DCE4823B06DAFAA;
+			productRefGroup = F8A16D87A8144531949E7423 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				894897AE266B428889BF4423 /* RedactionResearchApp */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		999EE468488B4EA5B201CE9F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				55864EEFB4864AF4A261DADB /* RedactionResearchApp/Resources/Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7094BCB9FDA64D0AAFA4E4EC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8A4E99212EF74C6C00189EB4 /* DuplicateAnalysisFinder.swift in Sources */,
+				1EDF09E0C81349568ADD4A7F /* RedactionResearchApp/App/RedactionResearchAppApp.swift in Sources */,
+				758129934AB648C0A5D422FB /* RedactionResearchApp/App/ContentView.swift in Sources */,
+				725B89BAC055408DA9EEA05E /* RedactionResearchApp/App/SettingsView.swift in Sources */,
+				9E0CA04AD5B84F029CC70A4F /* RedactionResearchApp/UI/SidebarView.swift in Sources */,
+				2D42568897B5468D904AC81A /* RedactionResearchApp/UI/ProgressScratchpadView.swift in Sources */,
+				86CC13F1D2DB4476A55D40CE /* RedactionResearchApp/UI/DashboardView.swift in Sources */,
+				4E3D0315182D4AA18D875DEA /* RedactionResearchApp/UI/DocumentListView.swift in Sources */,
+				5D28BFC1B7EC496C9B9AD49A /* RedactionResearchApp/UI/CompareView.swift in Sources */,
+				938174C465E944EA953B849B /* RedactionResearchApp/Services/FileImportService.swift in Sources */,
+				3AB028C9581B468A84899A7D /* RedactionResearchApp/Services/IndexingService.swift in Sources */,
+				70C1FEEDBD424E84A8788546 /* RedactionResearchApp/Services/AIService.swift in Sources */,
+				75C4BD23050149A0B60C354E /* RedactionResearchApp/Models/CaseModel.swift in Sources */,
+				C2D7A7BE32C54142AC30D5E4 /* RedactionResearchApp/Models/DocumentModel.swift in Sources */,
+				5033CB0FD60F45DAB6ACCF9B /* RedactionResearchApp/Utils/HashUtils.swift in Sources */,
+				84708E15B1C94892847B02EC /* RedactionResearchApp/Utils/ZipUtils.swift in Sources */,
+				E72B25E33E874B5498B5F83D /* RedactionResearchApp/Helpers/PDFTextExtractor.swift in Sources */,
+				0F15E70853774892889BA2F3 /* RedactionResearchApp/Helpers/ImageThumbnailGenerator.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		2E6136A7E65D47FD8B1AE6AE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = RedactionResearchApp/Resources/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.reference";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jacksonwells.RedactionResearchApp;
+				PRODUCT_NAME = RedactionResearchApp;
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		884870F06293441ABB34F839 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = QY38BDGM5Q;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		8C9310EDFE7444C68FA79CF4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = QY38BDGM5Q;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		9DEDE4B6CBAF4A72818BD0BA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = RedactionResearchApp/Resources/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.reference";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jacksonwells.RedactionResearchApp;
+				PRODUCT_NAME = RedactionResearchApp;
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5E30C7A074B14DDA9C86669D /* Build configuration list for PBXNativeTarget "RedactionResearchApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9DEDE4B6CBAF4A72818BD0BA /* Debug */,
+				2E6136A7E65D47FD8B1AE6AE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		72CE6BFA54E548F288EAD2A6 /* Build configuration list for PBXProject "RedactionResearchApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				884870F06293441ABB34F839 /* Debug */,
+				8C9310EDFE7444C68FA79CF4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = BA5BC93BAB864A82A7765A14 /* Project object */;
+}
