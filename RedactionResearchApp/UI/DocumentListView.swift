@@ -13,7 +13,7 @@ struct DocumentListView: View {
 
     @State private var selection = Set<DocumentModel.ID>()
 
-    @AppStorage("activeCaseID") private var activeCaseIDString: String = ""
+    @AppStorage("workspace.selectedCaseID") private var selectedCaseIDString: String = ""
 
     @AppStorage("autoIndexAfterImport") private var autoIndexAfterImport: Bool = false
 
@@ -212,8 +212,8 @@ struct DocumentListView: View {
 
     private func ensureDefaultCaseExistsIfNeeded() {
         guard cases.isEmpty else {
-            if activeCaseIDString.isEmpty, let first = cases.first {
-                activeCaseIDString = first.id.uuidString
+            if selectedCaseIDString.isEmpty, let first = cases.first {
+                selectedCaseIDString = first.id.uuidString
             }
             return
         }
@@ -223,7 +223,7 @@ struct DocumentListView: View {
             let model = CaseModel(name: "Default Case", caseFolderPath: folder.path)
             modelContext.insert(model)
             try modelContext.save()
-            activeCaseIDString = model.id.uuidString
+            selectedCaseIDString = model.id.uuidString
         } catch {
             showingError = true
             errorMessage = "Failed to create default case folder: \(error.localizedDescription)"
@@ -305,12 +305,17 @@ struct DocumentListView: View {
         indexingScratchpad = "Preparing…"
         indexingCurrentThumbPath = nil
 
-        // Keep a quick lookup from local path to DocumentModel for updating fields.
+        // Keep a quick lookup from local path to DocumentModel for updating fields (case-scoped).
+        let caseDocs: [DocumentModel] = {
+            guard let c = activeCase else { return [] }
+            return documents.filter { $0.caseID == c.id }
+        }()
+
         let localToDocID: [String: DocumentModel.ID] = Dictionary(
-            uniqueKeysWithValues: documents.map { ($0.localPath, $0.id) }
+            uniqueKeysWithValues: caseDocs.map { ($0.localPath, $0.id) }
         )
 
-        Task.detached(priority: .utility) {
+        Task(priority: .utility) {
             let stream = await indexer.index(urls: urls, enableAI: false, trace: nil)
 
             for await ev in stream {
@@ -323,17 +328,18 @@ struct DocumentListView: View {
                         indexingCurrentThumbPath = thumb
                     }
 
-                    // Update the corresponding DocumentModel (best-effort)
+                    // Update the corresponding DocumentModel (best-effort; case-only)
                     if let path = ev.currentPath, let id = localToDocID[path],
                        let doc = documents.first(where: { $0.id == id }) {
-                        if let sha = ev.sha256 { doc.sha256 = sha }
-                        if let dh = ev.dHash { doc.dHash = dh }
-                        if let derived = ev.derivedFolderPath { doc.derivedFolderPath = derived }
-                        if let p = ev.extractedTextPath { doc.extractedTextPath = p }
-                        if let p = ev.ocrTextPath { doc.ocrTextPath = p }
-                        if let p = ev.thumbnailPath { doc.thumbnailPath = p }
-                        // Mark as indexed once we start receiving derived outputs for this file.
-                        if ev.derivedFolderPath != nil || ev.thumbnailPath != nil || ev.extractedTextPath != nil || ev.ocrTextPath != nil {
+                        if let sha = ev.sha256, !sha.isEmpty { doc.sha256 = sha }
+                        if let dh = ev.dHash, !dh.isEmpty { doc.dHash = dh }
+                        if let derived = ev.derivedFolderPath, !derived.isEmpty { doc.derivedFolderPath = derived }
+                        if let p = ev.extractedTextPath, !p.isEmpty { doc.extractedTextPath = p }
+                        if let p = ev.ocrTextPath, !p.isEmpty { doc.ocrTextPath = p }
+                        if let p = ev.thumbnailPath, !p.isEmpty { doc.thumbnailPath = p }
+
+                        // Mark indexed once we start receiving derived outputs for this file.
+                        if ev.derivedFolderPath != nil || ev.thumbnailPath != nil || ev.extractedTextPath != nil || ev.ocrTextPath != nil || ev.dHash != nil {
                             doc.lastIndexedAt = Date()
                         }
                     }
@@ -463,14 +469,14 @@ struct DocumentListView: View {
     }
 
     private var activeCase: CaseModel? {
-        if let id = UUID(uuidString: activeCaseIDString), let match = cases.first(where: { $0.id == id }) {
+        if let id = UUID(uuidString: selectedCaseIDString), let match = cases.first(where: { $0.id == id }) {
             return match
         }
         return cases.first
     }
 
     private func setActiveCase(id: UUID) {
-        activeCaseIDString = id.uuidString
+        selectedCaseIDString = id.uuidString
     }
 
     private func createNewCase() {
@@ -482,7 +488,7 @@ struct DocumentListView: View {
             let model = CaseModel(name: name, caseFolderPath: folder.path)
             modelContext.insert(model)
             try modelContext.save()
-            activeCaseIDString = model.id.uuidString
+            selectedCaseIDString = model.id.uuidString
         } catch {
             showingError = true
             errorMessage = "Failed to create new case: \(error.localizedDescription)"
@@ -492,8 +498,7 @@ struct DocumentListView: View {
     private func clearActiveCase() {
         guard let c = activeCase else { return }
 
-        // In v1, DocumentModel is not case-scoped, so we clear all documents.
-        // Once documents are case-scoped, filter by case ID here.
+        // Documents are case-scoped; only clear documents belonging to the active case.
         let docsToRemove = documents.filter { $0.caseID == c.id }
 
         // Delete SwiftData records first
