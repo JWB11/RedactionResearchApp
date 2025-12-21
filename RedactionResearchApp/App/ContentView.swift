@@ -329,10 +329,8 @@ struct ContentView: View {
         guard !allURLs.isEmpty else { return }
 
         let workDocs: [DocumentModel]
-        if force {
-            workDocs = allDocs
-        } else if skipCachedOnRun {
-            workDocs = allDocs.filter { needsIndexing($0) }
+        if skipCachedOnRun {
+            workDocs = allDocs.filter { IndexingService.needsIndexing(for: $0, force: force) }
         } else {
             workDocs = allDocs
         }
@@ -340,6 +338,7 @@ struct ContentView: View {
         // Option D: prompt when there is no work to do.
         if !force, skipCachedOnRun, workDocs.isEmpty {
             pendingRunURLs = allURLs
+            processing.status = "No changes detected."
             showingNoChangesPrompt = true
             return
         }
@@ -369,20 +368,23 @@ struct ContentView: View {
                 urls: urlsToIndex,
                 enableAI: (ai.isLocalEnabled || ai.isCloudEnabled),
                 forceReindex: force,
+                caseID: selectedCaseID,
                 trace: { event in
                     Task { @MainActor in
                         traceStore.log(event)
                     }
                 }
             ) {
+                guard ev.caseID == nil || ev.caseID == selectedCaseID else { continue }
                 if Task.isCancelled { break }
 
                 let total = max(ev.total, 1)
                 let completed = min(max(ev.completed, 0), total)
                 await MainActor.run {
+                    let normalizedPath = ev.currentPath ?? caseDocuments.first(where: { $0.sha256 == ev.sha256 })?.localPath
                     processing.status = ev.message
                     processing.progress = Double(completed) / Double(total)
-                    processing.currentFilePath = ev.currentPath
+                    processing.currentFilePath = normalizedPath
 
                     // Live preview updates
                     if let thumb = ev.thumbnailPath {
@@ -421,6 +423,10 @@ struct ContentView: View {
             await analyzeDuplicates(refreshOnly: true)
 
             await MainActor.run {
+                try? modelContext.save()
+            }
+
+            await MainActor.run {
                 processing.status = "Done."
                 processing.progress = 1
                 processing.isProcessing = false
@@ -438,32 +444,26 @@ struct ContentView: View {
         processingTask = nil
     }
 
-    private func needsIndexing(_ doc: DocumentModel) -> Bool {
-        // Consider a document indexed if it has a derived folder and at least one derived artifact.
-        let hasDerived = (doc.derivedFolderPath?.isEmpty == false)
-        let hasAnyArtifact = (doc.thumbnailPath?.isEmpty == false)
-            || (doc.extractedTextPath?.isEmpty == false)
-            || (doc.ocrTextPath?.isEmpty == false)
-            || (doc.dHash?.isEmpty == false)
-
-        if !hasDerived { return true }
-        if !hasAnyArtifact { return true }
-        if doc.lastIndexedAt == nil { return true }
-        return false
-    }
-
     @MainActor
     private func updateDocumentFromProgress(_ ev: IndexingService.ProgressEvent) {
-        // Try to match by exact path first, then fall back to sha256.
-        let doc: DocumentModel?
-        if let p = ev.currentPath {
-            doc = caseDocuments.first(where: { $0.localPath == p })
-        } else {
-            doc = nil
+        if let evCase = ev.caseID, let activeCaseID = selectedCaseID, evCase != activeCaseID {
+            return
         }
 
-        let resolved = doc ?? (ev.sha256.flatMap { sha in caseDocuments.first(where: { $0.sha256 == sha }) })
+        let resolved: DocumentModel?
+        if let path = ev.currentPath, let match = caseDocuments.first(where: { $0.localPath == path }) {
+            resolved = match
+        } else if let sha = ev.sha256, let match = caseDocuments.first(where: { $0.sha256 == sha }) {
+            resolved = match
+        } else {
+            resolved = nil
+        }
         guard let resolved else { return }
+
+        let normalizedPath = ev.currentPath ?? resolved.localPath
+        if let normalizedPath, resolved.localPath != normalizedPath {
+            resolved.localPath = normalizedPath
+        }
 
         if let sha = ev.sha256, !sha.isEmpty { resolved.sha256 = sha }
         if let p = ev.derivedFolderPath, !p.isEmpty { resolved.derivedFolderPath = p }
@@ -475,6 +475,7 @@ struct ContentView: View {
         // Consider any derived output as proof the doc is indexed.
         if ev.derivedFolderPath != nil || ev.thumbnailPath != nil || ev.extractedTextPath != nil || ev.ocrTextPath != nil || ev.dHash != nil {
             resolved.lastIndexedAt = Date()
+            resolved.indexingVersion = IndexingService.currentIndexingVersion
         }
 
         indexedUpdateCount += 1
@@ -507,6 +508,7 @@ struct ContentView: View {
 
                 doc.derivedFolderPath = folder.path
                 doc.lastIndexedAt = Date()
+                doc.indexingVersion = IndexingService.currentIndexingVersion
 
                 let textURL = folder.appendingPathComponent("text.txt")
                 if FileManager.default.fileExists(atPath: textURL.path) {
