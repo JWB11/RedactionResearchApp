@@ -46,6 +46,8 @@ actor IndexingService {
         var extractedTextChars: Int?
         /// Character count of OCR text (when applicable).
         var ocrTextChars: Int?
+        /// Active case ID for this indexing run (used for UI routing).
+        var caseID: UUID?
 
         init(
             kind: Kind = .update,
@@ -60,7 +62,8 @@ actor IndexingService {
             ocrTextPath: String? = nil,
             dHash: String? = nil,
             extractedTextChars: Int? = nil,
-            ocrTextChars: Int? = nil
+            ocrTextChars: Int? = nil,
+            caseID: UUID? = nil
         ) {
             self.kind = kind
             self.completed = completed
@@ -75,6 +78,7 @@ actor IndexingService {
             self.dHash = dHash
             self.extractedTextChars = extractedTextChars
             self.ocrTextChars = ocrTextChars
+            self.caseID = caseID
         }
     }
 
@@ -88,6 +92,38 @@ actor IndexingService {
         var errors: Int
     }
 
+    static let currentIndexingVersion = 1
+
+    static func needsIndexing(for doc: DocumentModel, force: Bool) -> Bool {
+        if force { return true }
+
+        if doc.indexingVersion < currentIndexingVersion { return true }
+        if doc.lastIndexedAt == nil { return true }
+        guard let derivedFolderPath = doc.derivedFolderPath, !derivedFolderPath.isEmpty else { return true }
+
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        if !fm.fileExists(atPath: derivedFolderPath, isDirectory: &isDir) || !isDir.boolValue {
+            return true
+        }
+
+        let artifactPaths = [doc.thumbnailPath, doc.extractedTextPath, doc.ocrTextPath]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+
+        if artifactPaths.isEmpty {
+            return true
+        }
+
+        for path in artifactPaths {
+            if !fm.fileExists(atPath: path) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     /// Indexes the provided URLs (files, folders, and ZIPs), writing derived artifacts into
     /// Application Support/RedactionResearchApp/Derived.
     ///
@@ -96,6 +132,7 @@ actor IndexingService {
         urls: [URL],
         enableAI: Bool = false,
         forceReindex: Bool = false,
+        caseID: UUID? = nil,
         trace: (@Sendable (TraceEvent) -> Void)? = nil
     ) -> AsyncStream<ProgressEvent> {
         AsyncStream { continuation in
@@ -106,10 +143,14 @@ actor IndexingService {
 
                 actor YieldSink {
                     private let continuation: AsyncStream<ProgressEvent>.Continuation
-                    init(_ continuation: AsyncStream<ProgressEvent>.Continuation) {
+                    private let caseID: UUID?
+                    init(_ continuation: AsyncStream<ProgressEvent>.Continuation, caseID: UUID?) {
                         self.continuation = continuation
+                        self.caseID = caseID
                     }
                     func yield(_ ev: ProgressEvent) {
+                        var ev = ev
+                        ev.caseID = caseID
                         continuation.yield(ev)
                     }
                     func finish() {
@@ -197,11 +238,31 @@ actor IndexingService {
                     return cache
                 }
 
-                func tlog(_ level: TraceEvent.Level = .info, _ stage: String, _ message: String, filePath: String? = nil, metadata: [String: String] = [:]) {
-                    trace?(TraceEvent(level: level, stage: stage, message: message, filePath: filePath, metadata: metadata))
+                func tlog(
+                    _ level: TraceEvent.Level = .info,
+                    _ stage: String,
+                    _ message: String,
+                    filePath: String? = nil,
+                    sha256: String? = nil,
+                    derivedPath: String? = nil,
+                    thumbnailPath: String? = nil,
+                    metadata: [String: String] = [:],
+                    aiMetadata: [String: String] = [:]
+                ) {
+                    trace?(TraceEvent(
+                        level: level,
+                        stage: stage,
+                        message: message,
+                        filePath: filePath,
+                        sha256: sha256,
+                        derivedPath: derivedPath,
+                        thumbnailPath: thumbnailPath,
+                        metadata: metadata,
+                        aiMetadata: aiMetadata
+                    ))
                 }
 
-                let sink = YieldSink(continuation)
+                let sink = YieldSink(continuation, caseID: caseID)
 
                 // Bounded parallelism. Hashing can run higher, OCR should stay moderate.
                 // Start conservative to keep UI responsive and avoid thrashing.
@@ -240,7 +301,7 @@ actor IndexingService {
                     let ocr = ocrText
                     // If we have essentially no text, skip.
                     if extracted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (ocr?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
-                        tlog(.debug, "AI", "Skipped (no text)", filePath: fileURL.path)
+                        tlog(.debug, "AI", "Skipped (no text)", filePath: fileURL.path, sha256: sha256, derivedPath: artifactDir.path, thumbnailPath: thumbPath)
                         return
                     }
 
@@ -253,7 +314,15 @@ actor IndexingService {
                         sha256: sha256,
                         thumbnailPath: thumbPath
                     ))
-                    tlog(.info, "AI", "Starting redaction inference", filePath: fileURL.path)
+                    tlog(
+                        .info,
+                        "AI",
+                        "Starting redaction inference",
+                        filePath: fileURL.path,
+                        sha256: sha256,
+                        derivedPath: artifactDir.path,
+                        thumbnailPath: thumbPath
+                    )
 
                     do {
                         let resp = try await AIService.shared.inferRedactions(
@@ -272,7 +341,17 @@ actor IndexingService {
                         let outURL = artifactDir.appendingPathComponent("ai_redaction_suggestions.json")
                         try resp.text.write(to: outURL, atomically: true, encoding: .utf8)
 
-                        tlog(.info, "AI", "Wrote suggestions", filePath: fileURL.path, metadata: ["path": outURL.path, "provenance": resp.provenance.rawValue])
+                        tlog(
+                            .info,
+                            "AI",
+                            "Wrote suggestions",
+                            filePath: fileURL.path,
+                            sha256: sha256,
+                            derivedPath: artifactDir.path,
+                            thumbnailPath: thumbPath,
+                            metadata: ["path": outURL.path],
+                            aiMetadata: ["provenance": resp.provenance.rawValue, "warnings": resp.warnings.joined(separator: ";")]
+                        )
                         await sink.yield(.init(
                             completed: 0,
                             total: 1,
@@ -282,7 +361,16 @@ actor IndexingService {
                             thumbnailPath: thumbPath
                         ))
                     } catch {
-                        tlog(.error, "AI", "Inference failed", filePath: fileURL.path, metadata: ["error": error.localizedDescription])
+                        tlog(
+                            .error,
+                            "AI",
+                            "Inference failed",
+                            filePath: fileURL.path,
+                            sha256: sha256,
+                            derivedPath: artifactDir.path,
+                            thumbnailPath: thumbPath,
+                            metadata: ["error": error.localizedDescription]
+                        )
                     }
                 }
 
@@ -318,20 +406,20 @@ actor IndexingService {
                                 do {
                                     let (sha, size) = try Self.sha256Streaming(for: url)
                                     await stats.incHashed()
-                                    tlog(.info, "Hash", "SHA-256 computed", filePath: url.path, metadata: ["sha256": sha, "bytes": "\(size)"])
+                                    tlog(.info, "Hash", "SHA-256 computed", filePath: url.path, sha256: sha, metadata: ["bytes": "\(size)"])
                                     let c1 = await completed.snapshot()
                                     await sink.yield(.init(completed: c1, total: expanded.count, message: "Hashed \(displayName)", currentPath: url.path, sha256: sha))
 
                                     // If another task is already generating artifacts for this sha, skip heavy work.
                                     guard await inflight.claim(sha) else {
-                                        tlog(.debug, "Dedup", "SHA already processing in this batch; skipping", filePath: url.path, metadata: ["sha256": sha])
+                                        tlog(.debug, "Dedup", "SHA already processing in this batch; skipping", filePath: url.path, sha256: sha)
                                         await sink.yield(.init(completed: i, total: expanded.count, message: "Duplicate SHA in batch; skipping \(displayName)", currentPath: url.path, sha256: sha))
                                         return
                                     }
                                     defer { Task { await inflight.release(sha) } }
 
                                     let type = Self.contentType(for: url)
-                                    tlog(.debug, "Detect", "Content type resolved", filePath: url.path, metadata: ["uti": type?.identifier ?? "", "ext": url.pathExtension.lowercased()])
+                                    tlog(.debug, "Detect", "Content type resolved", filePath: url.path, sha256: sha, metadata: ["uti": type?.identifier ?? "", "ext": url.pathExtension.lowercased()])
 
                                     let artifactDir = derivedRoot.appendingPathComponent(sha, isDirectory: true)
                                     try FileManager.default.createDirectory(at: artifactDir, withIntermediateDirectories: true)
@@ -345,7 +433,7 @@ actor IndexingService {
                                     let hasCache = (!forceReindex) && (cachedFlags?.any ?? false)
 
                                     if forceReindex, (cachedFlags?.any ?? false) {
-                                        tlog(.info, "Cache", "Force re-index enabled; rebuilding artifacts", filePath: url.path, metadata: ["sha256": sha])
+                                        tlog(.info, "Cache", "Force re-index enabled; rebuilding artifacts", filePath: url.path, sha256: sha)
                                     }
 
                                     // Always (re)write cheap metadata for audit.
@@ -360,7 +448,7 @@ actor IndexingService {
                                     try Self.writeJSON(meta, to: artifactDir.appendingPathComponent("meta.json"))
 
                                     if hasCache {
-                                        tlog(.debug, "Cache", "Artifacts exist; skipping heavy extraction", filePath: url.path, metadata: ["sha256": sha])
+                                        tlog(.debug, "Cache", "Artifacts exist; skipping heavy extraction", filePath: url.path, sha256: sha, derivedPath: artifactDir.path)
                                         await sink.yield(.init(completed: i, total: expanded.count, message: "Cached; skipped \(displayName)", currentPath: url.path, sha256: sha, thumbnailPath: (cachedFlags?.hasThumb == true) ? cachedThumb.path : nil, derivedFolderPath: artifactDir.path))
                                         return
                                     }
@@ -371,7 +459,7 @@ actor IndexingService {
                                         if let text = try Self.extractText(from: url, type: type) {
                                             await stats.incTextExtracted()
                                             try text.write(to: cachedText, atomically: true, encoding: .utf8)
-                                            tlog(.info, "Text", "Extracted text", filePath: url.path, metadata: ["chars": "\(text.count)"])
+                                            tlog(.info, "Text", "Extracted text", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, metadata: ["chars": "\(text.count)"])
                                             await sink.yield(.init(completed: i, total: expanded.count, message: "Text extracted \(displayName)", currentPath: url.path, sha256: sha, derivedFolderPath: artifactDir.path, extractedTextPath: cachedText.path, extractedTextChars: text.count))
 
                                             // Optional AI inference (off by default)
@@ -384,7 +472,7 @@ actor IndexingService {
                                         if let text = extractedText {
                                             await stats.incTextExtracted()
                                             try text.write(to: cachedText, atomically: true, encoding: .utf8)
-                                            tlog(.info, "PDF", "Extracted PDF text", filePath: url.path, metadata: ["chars": "\(text.count)"])
+                                            tlog(.info, "PDF", "Extracted PDF text", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, metadata: ["chars": "\(text.count)"])
                                             await sink.yield(.init(completed: i, total: expanded.count, message: "PDF text extracted \(displayName)", currentPath: url.path, sha256: sha, derivedFolderPath: artifactDir.path, extractedTextPath: cachedText.path, extractedTextChars: text.count))
                                         }
 
@@ -395,7 +483,7 @@ actor IndexingService {
                                         if let thumb {
                                             await stats.incThumb()
                                             try await MainActor.run { try Self.writePNG(thumb, to: cachedThumb) }
-                                            tlog(.info, "Thumb", "Wrote thumbnail", filePath: url.path, metadata: ["path": cachedThumb.path])
+                                            tlog(.info, "Thumb", "Wrote thumbnail", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, thumbnailPath: cachedThumb.path, metadata: ["path": cachedThumb.path])
 
                                             let thumbPath = cachedThumb.path
                                             await sink.yield(.init(completed: i, total: expanded.count, message: "Preview ready \(displayName)", currentPath: url.path, sha256: sha, thumbnailPath: thumbPath, derivedFolderPath: artifactDir.path))
@@ -408,7 +496,7 @@ actor IndexingService {
                                             // Optional: perceptual hash of thumbnail
                                             if let dh = Self.dHash(from: thumb) {
                                                 try dh.write(to: artifactDir.appendingPathComponent("dhash.txt"), atomically: true, encoding: .utf8)
-                                                tlog(.debug, "dHash", "Computed dHash", filePath: url.path, metadata: ["dhash": dh])
+                                                tlog(.debug, "dHash", "Computed dHash", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, thumbnailPath: thumbPath, metadata: ["dhash": dh])
                                                 await sink.yield(.init(completed: i, total: expanded.count, message: "Computed dHash \(displayName)", currentPath: url.path, sha256: sha, thumbnailPath: thumbPath, derivedFolderPath: artifactDir.path, dHash: dh))
                                             }
 
@@ -421,7 +509,7 @@ actor IndexingService {
                                                 if let ocr = try await Self.ocrText(from: thumb) {
                                                     await stats.incTextExtracted()
                                                     try ocr.write(to: cachedOCR, atomically: true, encoding: .utf8)
-                                                    tlog(.info, "OCR", "Recognized text", filePath: url.path, metadata: ["chars": "\(ocr.count)"])
+                                                      tlog(.info, "OCR", "Recognized text", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, thumbnailPath: thumbPath, metadata: ["chars": "\(ocr.count)"])
                                                     await sink.yield(.init(completed: i, total: expanded.count, message: "OCR complete \(displayName)", currentPath: url.path, sha256: sha, thumbnailPath: thumbPath, derivedFolderPath: artifactDir.path, ocrTextPath: cachedOCR.path, extractedTextChars: extractedCountForOCR, ocrTextChars: ocr.count))
 
                                                     // Optional AI inference (use both extracted + OCR)
@@ -442,7 +530,7 @@ actor IndexingService {
                                         if let thumb {
                                             await stats.incThumb()
                                             try await MainActor.run { try Self.writePNG(thumb, to: cachedThumb) }
-                                            tlog(.info, "Thumb", "Wrote thumbnail", filePath: url.path, metadata: ["path": cachedThumb.path])
+                                              tlog(.info, "Thumb", "Wrote thumbnail", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, thumbnailPath: cachedThumb.path, metadata: ["path": cachedThumb.path])
 
                                             let thumbPath = cachedThumb.path
                                             await sink.yield(.init(completed: i, total: expanded.count, message: "Preview ready \(displayName)", currentPath: url.path, sha256: sha, thumbnailPath: thumbPath, derivedFolderPath: artifactDir.path))
@@ -450,7 +538,7 @@ actor IndexingService {
                                             // Perceptual hash
                                             if let dh = Self.dHash(from: thumb) {
                                                 try dh.write(to: artifactDir.appendingPathComponent("dhash.txt"), atomically: true, encoding: .utf8)
-                                                tlog(.debug, "dHash", "Computed dHash", filePath: url.path, metadata: ["dhash": dh])
+                                                  tlog(.debug, "dHash", "Computed dHash", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, thumbnailPath: thumbPath, metadata: ["dhash": dh])
                                                 await sink.yield(.init(completed: i, total: expanded.count, message: "Computed dHash \(displayName)", currentPath: url.path, sha256: sha, thumbnailPath: thumbPath, derivedFolderPath: artifactDir.path, dHash: dh))
                                             }
 
@@ -463,7 +551,7 @@ actor IndexingService {
                                             if let ocr = try await Self.ocrText(from: thumb) {
                                                 await stats.incTextExtracted()
                                                 try ocr.write(to: cachedOCR, atomically: true, encoding: .utf8)
-                                                tlog(.info, "OCR", "Recognized text", filePath: url.path, metadata: ["chars": "\(ocr.count)"])
+                                                  tlog(.info, "OCR", "Recognized text", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, thumbnailPath: thumbPath, metadata: ["chars": "\(ocr.count)"])
                                                 await sink.yield(.init(completed: i, total: expanded.count, message: "OCR complete \(displayName)", currentPath: url.path, sha256: sha, thumbnailPath: thumbPath, derivedFolderPath: artifactDir.path, ocrTextPath: cachedOCR.path, extractedTextChars: 0, ocrTextChars: ocr.count))
 
                                                 await runAIIfEnabled(extractedText: nil, ocrText: ocr, fileURL: url, sha256: sha, artifactDir: artifactDir, thumbPath: thumbPath)
