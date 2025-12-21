@@ -6,6 +6,8 @@ final class AuditEventModel {
     @Attribute(.unique) var id: UUID
     var createdAt: Date  // Renamed from timestamp for consistency
     var level: String
+    var createdAt: Date
+    var levelRaw: String
     var stage: String
     var message: String
     var filePath: String?
@@ -16,11 +18,22 @@ final class AuditEventModel {
     var durationMs: Double?
     var metadata: [String: String]
     var aiMetadata: [String: String]  // Added missing property
+    var aiMetadata: [String: String]
+
+    var derivedPath: String? {
+        get { derivedFolderPath }
+        set { derivedFolderPath = newValue }
+    }
+
+    var level: TraceEvent.Level {
+        get { TraceEvent.Level(rawValue: levelRaw) ?? .info }
+        set { levelRaw = newValue.rawValue }
+    }
 
     init(
         id: UUID = UUID(),
-        timestamp: Date = Date(),
-        level: String,
+        createdAt: Date = Date(),
+        level: TraceEvent.Level,
         stage: String,
         message: String,
         filePath: String? = nil,
@@ -35,6 +48,8 @@ final class AuditEventModel {
         self.id = id
         self.createdAt = timestamp
         self.level = level
+        self.createdAt = createdAt
+        self.levelRaw = level.rawValue
         self.stage = stage
         self.message = message
         self.filePath = filePath
@@ -53,11 +68,17 @@ final class AuditEventModel {
             id: event.id,
             timestamp: event.timestamp,
             level: event.level.rawValue,
+    convenience init(event: TraceEvent) {
+        self.init(
+            id: event.id,
+            createdAt: event.timestamp,
+            level: event.level,
             stage: event.stage,
             message: event.message,
             filePath: event.filePath,
             sha256: event.sha256,
             derivedPath: event.derivedFolderPath,
+            derivedFolderPath: event.derivedFolderPath,
             artifactPath: event.artifactPath,
             thumbnailPath: event.thumbnailPath,
             durationMs: event.durationMs,

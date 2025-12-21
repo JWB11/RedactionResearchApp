@@ -55,7 +55,7 @@ struct RedactionResearchAppApp: App {
                     Text(initializationError ?? "")
                 }
         }
-        .modelContainer(for: [CaseModel.self, DocumentModel.self, ClusterModel.self])
+        .modelContainer(container)
 
         // Secondary window: live execution trace
         WindowGroup("Execution Trace", id: "execution-trace") {
@@ -89,9 +89,11 @@ struct RedactionResearchAppApp: App {
 final class TraceStore: ObservableObject {
     @Published private(set) var events: [AuditEventModel] = []
 
+    private let container: ModelContainer
     private let context: ModelContext
 
     init(container: ModelContainer) {
+        self.container = container
         self.context = ModelContext(container)
         loadPersisted()
     }
@@ -104,11 +106,12 @@ final class TraceStore: ObservableObject {
         if let fetched = try? context.fetch(descriptor) {
             let trimmed = Array(fetched.suffix(limit))
             events = trimmed
+            events = Array(fetched.suffix(limit))
         }
     }
 
     func log(_ event: TraceEvent) {
-        let model = AuditEventModel(event)
+        let model = event.asModel()
         context.insert(model)
         do {
             try context.save()
@@ -151,7 +154,7 @@ final class TraceStore: ObservableObject {
             let ts = df.string(from: ev.createdAt)
             let fp = ev.filePath.map { "\n  file: \($0)" } ?? ""
             let sha = ev.sha256.map { "\n  sha256: \($0)" } ?? ""
-            let derived = ev.derivedPath.map { "\n  derived: \($0)" } ?? ""
+            let derived = ev.derivedFolderPath.map { "\n  derived: \($0)" } ?? ""
             let thumb = ev.thumbnailPath.map { "\n  thumb: \($0)" } ?? ""
             let meta: String
             if ev.metadata.isEmpty {

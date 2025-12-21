@@ -1,29 +1,26 @@
 import Foundation
-import SwiftData
 
-/// A lightweight, in-memory representation of a trace/audit event.
-/// Used for passing event data before persistence and for UI display.
-struct TraceEvent: Identifiable {
+/// Lightweight value type for logging and displaying execution trace entries.
+struct TraceEvent: Identifiable, Hashable, Codable {
     enum Level: String, CaseIterable, Codable {
-        case debug
         case info
         case warning
         case error
     }
 
-    var id: UUID
-    var timestamp: Date
-    var level: Level
+    var id: UUID = UUID()
+    var timestamp: Date = Date()
+    var level: Level = .info
     var stage: String
     var message: String
-    var filePath: String?
-    var sha256: String?
-    var derivedFolderPath: String?
-    var artifactPath: String?
-    var thumbnailPath: String?
-    var durationMs: Double?
-    var metadata: [String: String]
-    var aiMetadata: [String: String]
+    var filePath: String? = nil
+    var sha256: String? = nil
+    var derivedFolderPath: String? = nil
+    var artifactPath: String? = nil
+    var thumbnailPath: String? = nil
+    var durationMs: Double? = nil
+    var metadata: [String: String] = [:]
+    var aiMetadata: [String: String] = [:]
 
     init(
         id: UUID = UUID(),
@@ -55,16 +52,15 @@ struct TraceEvent: Identifiable {
         self.aiMetadata = aiMetadata
     }
 
-    /// Initialize from a persisted AuditEventModel
     init(model: AuditEventModel) {
         self.id = model.id
         self.timestamp = model.createdAt
-        self.level = Level(rawValue: model.level) ?? .info
+        self.level = model.level
         self.stage = model.stage
         self.message = model.message
         self.filePath = model.filePath
         self.sha256 = model.sha256
-        self.derivedFolderPath = model.derivedPath
+        self.derivedFolderPath = model.derivedFolderPath
         self.artifactPath = model.artifactPath
         self.thumbnailPath = model.thumbnailPath
         self.durationMs = model.durationMs
@@ -72,22 +68,7 @@ struct TraceEvent: Identifiable {
         self.aiMetadata = model.aiMetadata
     }
 
-    /// Convert to a persisted model for SwiftData storage
     func asModel() -> AuditEventModel {
-        return AuditEventModel(
-            id: id,
-            timestamp: timestamp,
-            level: level.rawValue,
-            stage: stage,
-            message: message,
-            filePath: filePath,
-            sha256: sha256,
-            derivedPath: derivedFolderPath,
-            artifactPath: artifactPath,
-            thumbnailPath: thumbnailPath,
-            durationMs: durationMs,
-            metadata: metadata,
-            aiMetadata: aiMetadata
-        )
+        AuditEventModel(event: self)
     }
 }
