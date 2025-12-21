@@ -314,11 +314,18 @@ struct DocumentListView: View {
         let localToDocID: [String: DocumentModel.ID] = Dictionary(
             uniqueKeysWithValues: caseDocs.map { ($0.localPath, $0.id) }
         )
+        let shaToDocID: [String: DocumentModel.ID] = Dictionary(
+            uniqueKeysWithValues: caseDocs.compactMap { doc in
+                guard let sha = doc.sha256, !sha.isEmpty else { return nil }
+                return (sha, doc.id)
+            }
+        )
 
         Task(priority: .utility) {
-            let stream = await indexer.index(urls: urls, enableAI: false, trace: nil)
+            let stream = await indexer.index(urls: urls, enableAI: false, caseID: activeCase?.id, trace: nil)
 
             for await ev in stream {
+                if let evCase = ev.caseID, let activeCase, evCase != activeCase.id { continue }
                 await MainActor.run {
                     if ev.total > 0 {
                         indexingProgress = Double(ev.completed) / Double(ev.total)
@@ -329,8 +336,20 @@ struct DocumentListView: View {
                     }
 
                     // Update the corresponding DocumentModel (best-effort; case-only)
-                    if let path = ev.currentPath, let id = localToDocID[path],
-                       let doc = documents.first(where: { $0.id == id }) {
+                    let resolvedDoc: DocumentModel? = {
+                        if let path = ev.currentPath, let id = localToDocID[path] {
+                            return documents.first(where: { $0.id == id })
+                        }
+                        if let sha = ev.sha256, let id = shaToDocID[sha] {
+                            return documents.first(where: { $0.id == id })
+                        }
+                        return nil
+                    }()
+
+                    if let doc = resolvedDoc {
+                        if let path = ev.currentPath, doc.localPath != path {
+                            doc.localPath = path
+                        }
                         if let sha = ev.sha256, !sha.isEmpty { doc.sha256 = sha }
                         if let dh = ev.dHash, !dh.isEmpty { doc.dHash = dh }
                         if let derived = ev.derivedFolderPath, !derived.isEmpty { doc.derivedFolderPath = derived }
@@ -341,6 +360,7 @@ struct DocumentListView: View {
                         // Mark indexed once we start receiving derived outputs for this file.
                         if ev.derivedFolderPath != nil || ev.thumbnailPath != nil || ev.extractedTextPath != nil || ev.ocrTextPath != nil || ev.dHash != nil {
                             doc.lastIndexedAt = Date()
+                            doc.indexingVersion = IndexingService.currentIndexingVersion
                         }
                     }
 
@@ -360,6 +380,10 @@ struct DocumentListView: View {
                         errorMessage = ev.message
                     }
                 }
+            }
+
+            await MainActor.run {
+                try? modelContext.save()
             }
 
             await MainActor.run {

@@ -46,7 +46,10 @@ struct ContentView: View {
     }
 
     @State private var showingEnableCloudPrompt: Bool = false
-    @State private var pendingEnableCloud: Bool = false
+    @State private var showingEnableLocalPrompt: Bool = false
+    @State private var showingRoutePicker: Bool = false
+    @State private var pendingRouteChoice: AIRouteChoice? = nil
+    @State private var pendingAIRun: (() async -> Void)? = nil
     @State private var aiStatus: String = ""
 
     @StateObject private var processing = ProcessingStatus()
@@ -73,6 +76,11 @@ struct ContentView: View {
 
     private let indexer = IndexingService()
     private let clusterAnalyzer = ClusterAnalysisService()
+
+    private enum AIRouteChoice {
+        case local
+        case cloud
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -128,13 +136,36 @@ struct ContentView: View {
             }
             .alert("Enable Cloud AI?", isPresented: $showingEnableCloudPrompt) {
                 Button("Enable", role: .destructive) {
+                    ai.markConsent(forLocal: false)
                     ai.setCloudAIEnabled(true)
+                    aiStatus = "Cloud AI enabled"
+                    runPendingAIRun()
                 }
                 Button("Cancel", role: .cancel) {
-                    // Leave disabled
+                    clearPendingAIRun()
                 }
             } message: {
-                Text("Cloud AI sends text off-device. For legal research, enable only when you intend to use a cloud model. You can disable it any time in Settings.")
+                Text("Cloud AI sends text and prompts to a configured provider. Only enable if you are comfortable sending derived text off-device.")
+            }
+            .alert("Enable Local AI?", isPresented: $showingEnableLocalPrompt) {
+                Button("Enable", role: .destructive) {
+                    ai.markConsent(forLocal: true)
+                    ai.setLocalAIEnabled(true)
+                    aiStatus = "Local AI enabled"
+                    runPendingAIRun()
+                }
+                Button("Cancel", role: .cancel) {
+                    clearPendingAIRun()
+                }
+            } message: {
+                Text("Local AI runs on-device. Inputs stay on this Mac and are not sent to cloud providers.")
+            }
+            .confirmationDialog("Choose how to route AI tasks", isPresented: $showingRoutePicker, titleVisibility: .visible) {
+                Button("Enable Local AI (on-device)") { handleRouteChoice(.local) }
+                Button("Enable Cloud AI (off-device)") { handleRouteChoice(.cloud) }
+                Button("Cancel", role: .cancel) { clearPendingAIRun() }
+            } message: {
+                Text("Select whether to keep AI processing local or allow cloud routing before running this task.")
             }
             .alert("No changes detected", isPresented: $showingNoChangesPrompt) {
                 Button("Re-index anyway", role: .destructive) {
@@ -195,9 +226,7 @@ struct ContentView: View {
                 Divider()
 
                 Button {
-                    // Local is safe by default; allow toggling.
-                    ai.setLocalAIEnabled(true)
-                    aiStatus = "Local AI enabled"
+                    handleRouteChoice(.local)
                 } label: {
                     Label("Enable Local AI", systemImage: "bolt.horizontal.circle")
                         .labelStyle(.iconOnly)
@@ -212,11 +241,11 @@ struct ContentView: View {
                 }
 
                 Button {
-                    if ai.shouldPromptToEnableCloudAI() {
-                        showingEnableCloudPrompt = true
-                    } else {
+                    if ai.isCloudEnabled {
                         ai.setCloudAIEnabled(false)
                         aiStatus = "Cloud AI disabled"
+                    } else {
+                        handleRouteChoice(.cloud)
                     }
                 } label: {
                     Label("Cloud AI…", systemImage: "icloud")
@@ -241,6 +270,51 @@ struct ContentView: View {
         startProcessing(urlsOverride: nil, forceOverride: nil)
     }
 
+    @MainActor
+    private func requireAIRouteThenRun(_ action: @escaping () async -> Void) {
+        if ai.isLocalEnabled || ai.isCloudEnabled {
+            Task { await action() }
+            return
+        }
+        pendingAIRun = action
+        showingRoutePicker = true
+    }
+
+    private func handleRouteChoice(_ route: AIRouteChoice) {
+        pendingRouteChoice = route
+        switch route {
+        case .local:
+            if ai.hasLocalConsent {
+                ai.setLocalAIEnabled(true)
+                aiStatus = "Local AI enabled"
+                runPendingAIRun()
+            } else {
+                showingEnableLocalPrompt = true
+            }
+        case .cloud:
+            if ai.hasCloudConsent {
+                ai.setCloudAIEnabled(true)
+                aiStatus = "Cloud AI enabled"
+                runPendingAIRun()
+            } else {
+                showingEnableCloudPrompt = true
+            }
+        }
+    }
+
+    private func runPendingAIRun() {
+        let action = pendingAIRun
+        pendingAIRun = nil
+        pendingRouteChoice = nil
+        Task { await action?() }
+    }
+
+    private func clearPendingAIRun() {
+        pendingAIRun = nil
+        pendingRouteChoice = nil
+        showingRoutePicker = false
+    }
+
     private func startProcessing(urlsOverride: [URL]?, forceOverride: Bool?) {
         guard !processing.isProcessing else { return }
         guard selectedCaseID != nil else {
@@ -255,10 +329,8 @@ struct ContentView: View {
         guard !allURLs.isEmpty else { return }
 
         let workDocs: [DocumentModel]
-        if force {
-            workDocs = allDocs
-        } else if skipCachedOnRun {
-            workDocs = allDocs.filter { needsIndexing($0) }
+        if skipCachedOnRun {
+            workDocs = allDocs.filter { IndexingService.needsIndexing(for: $0, force: force) }
         } else {
             workDocs = allDocs
         }
@@ -266,6 +338,7 @@ struct ContentView: View {
         // Option D: prompt when there is no work to do.
         if !force, skipCachedOnRun, workDocs.isEmpty {
             pendingRunURLs = allURLs
+            processing.status = "No changes detected."
             showingNoChangesPrompt = true
             return
         }
@@ -295,20 +368,23 @@ struct ContentView: View {
                 urls: urlsToIndex,
                 enableAI: (ai.isLocalEnabled || ai.isCloudEnabled),
                 forceReindex: force,
+                caseID: selectedCaseID,
                 trace: { event in
                     Task { @MainActor in
                         traceStore.log(event)
                     }
                 }
             ) {
+                guard ev.caseID == nil || ev.caseID == selectedCaseID else { continue }
                 if Task.isCancelled { break }
 
                 let total = max(ev.total, 1)
                 let completed = min(max(ev.completed, 0), total)
                 await MainActor.run {
+                    let normalizedPath = ev.currentPath ?? caseDocuments.first(where: { $0.sha256 == ev.sha256 })?.localPath
                     processing.status = ev.message
                     processing.progress = Double(completed) / Double(total)
-                    processing.currentFilePath = ev.currentPath
+                    processing.currentFilePath = normalizedPath
 
                     // Live preview updates
                     if let thumb = ev.thumbnailPath {
@@ -347,6 +423,10 @@ struct ContentView: View {
             await analyzeClusters(refreshOnly: true)
 
             await MainActor.run {
+                try? modelContext.save()
+            }
+
+            await MainActor.run {
                 processing.status = "Done."
                 processing.progress = 1
                 processing.isProcessing = false
@@ -364,32 +444,26 @@ struct ContentView: View {
         processingTask = nil
     }
 
-    private func needsIndexing(_ doc: DocumentModel) -> Bool {
-        // Consider a document indexed if it has a derived folder and at least one derived artifact.
-        let hasDerived = (doc.derivedFolderPath?.isEmpty == false)
-        let hasAnyArtifact = (doc.thumbnailPath?.isEmpty == false)
-            || (doc.extractedTextPath?.isEmpty == false)
-            || (doc.ocrTextPath?.isEmpty == false)
-            || (doc.dHash?.isEmpty == false)
-
-        if !hasDerived { return true }
-        if !hasAnyArtifact { return true }
-        if doc.lastIndexedAt == nil { return true }
-        return false
-    }
-
     @MainActor
     private func updateDocumentFromProgress(_ ev: IndexingService.ProgressEvent) {
-        // Try to match by exact path first, then fall back to sha256.
-        let doc: DocumentModel?
-        if let p = ev.currentPath {
-            doc = caseDocuments.first(where: { $0.localPath == p })
-        } else {
-            doc = nil
+        if let evCase = ev.caseID, let activeCaseID = selectedCaseID, evCase != activeCaseID {
+            return
         }
 
-        let resolved = doc ?? (ev.sha256.flatMap { sha in caseDocuments.first(where: { $0.sha256 == sha }) })
+        let resolved: DocumentModel?
+        if let path = ev.currentPath, let match = caseDocuments.first(where: { $0.localPath == path }) {
+            resolved = match
+        } else if let sha = ev.sha256, let match = caseDocuments.first(where: { $0.sha256 == sha }) {
+            resolved = match
+        } else {
+            resolved = nil
+        }
         guard let resolved else { return }
+
+        let normalizedPath = ev.currentPath ?? resolved.localPath
+        if let normalizedPath, resolved.localPath != normalizedPath {
+            resolved.localPath = normalizedPath
+        }
 
         if let sha = ev.sha256, !sha.isEmpty { resolved.sha256 = sha }
         if let p = ev.derivedFolderPath, !p.isEmpty { resolved.derivedFolderPath = p }
@@ -401,6 +475,7 @@ struct ContentView: View {
         // Consider any derived output as proof the doc is indexed.
         if ev.derivedFolderPath != nil || ev.thumbnailPath != nil || ev.extractedTextPath != nil || ev.ocrTextPath != nil || ev.dHash != nil {
             resolved.lastIndexedAt = Date()
+            resolved.indexingVersion = IndexingService.currentIndexingVersion
         }
 
         indexedUpdateCount += 1
@@ -433,6 +508,7 @@ struct ContentView: View {
 
                 doc.derivedFolderPath = folder.path
                 doc.lastIndexedAt = Date()
+                doc.indexingVersion = IndexingService.currentIndexingVersion
 
                 let textURL = folder.appendingPathComponent("text.txt")
                 if FileManager.default.fileExists(atPath: textURL.path) {
@@ -532,6 +608,13 @@ struct ContentView: View {
     }
 
     private func runAIRedactionInferenceForCurrentFile() async {
+        if !(ai.isLocalEnabled || ai.isCloudEnabled) {
+            await MainActor.run {
+                requireAIRouteThenRun { await runAIRedactionInferenceForCurrentFile() }
+            }
+            return
+        }
+
         // Prefer the currently analyzed file; otherwise fall back to the newest document.
         let currentPath = processing.currentFilePath
         let doc: DocumentModel?
