@@ -22,17 +22,23 @@ struct RedactionResearchAppApp: App {
     init() {
         do {
             let container = try ModelContainer(for: CaseModel.self, DocumentModel.self, AuditEventModel.self)
-            _modelContainer = State(initialValue: container)
+            self.container = container
             _traceStore = StateObject(wrappedValue: TraceStore(container: container))
             _initializationError = State(initialValue: nil)
         } catch {
             // Create a fallback in-memory container to prevent crash
             let schema = Schema([CaseModel.self, DocumentModel.self, AuditEventModel.self])
             let config = ModelConfiguration(isStoredInMemoryOnly: true)
-            let container = try! ModelContainer(for: schema, configurations: config)
-            _modelContainer = State(initialValue: container)
-            _traceStore = StateObject(wrappedValue: TraceStore(container: container))
-            _initializationError = State(initialValue: "Failed to initialize data store: \(error.localizedDescription). Running in memory-only mode. Data will not be persisted.")
+            do {
+                let container = try ModelContainer(for: schema, configurations: config)
+                self.container = container
+                _traceStore = StateObject(wrappedValue: TraceStore(container: container))
+                _initializationError = State(initialValue: "Failed to initialize data store: \(error.localizedDescription). Running in memory-only mode. Data will not be persisted.")
+            } catch {
+                // If even the in-memory container fails, something is seriously wrong
+                // Create a minimal container and report both errors
+                fatalError("Failed to create even an in-memory ModelContainer. This should never happen. Original error: \(error)")
+            }
         }
     }
 
@@ -87,23 +93,17 @@ final class TraceStore: ObservableObject {
 
     init(container: ModelContainer) {
         self.context = ModelContext(container)
-        Task { await reload() }
-    }
-
-    init(container: ModelContainer) {
-        self.container = container
-        self.context = ModelContext(container)
         loadPersisted()
     }
 
     func loadPersisted(limit: Int = 5000) {
         let descriptor = FetchDescriptor<AuditEventModel>(
             predicate: nil,
-            sortBy: [SortDescriptor(\.timestamp, order: .forward)]
+            sortBy: [SortDescriptor(\.createdAt, order: .forward)]
         )
         if let fetched = try? context.fetch(descriptor) {
-            let trimmed = fetched.suffix(limit)
-            events = trimmed.map { TraceEvent(model: $0) }
+            let trimmed = Array(fetched.suffix(limit))
+            events = trimmed
         }
     }
 
@@ -123,10 +123,6 @@ final class TraceStore: ObservableObject {
         if let items = try? context.fetch(descriptor) {
             events = items
         }
-
-        let model = event.asModel()
-        context.insert(model)
-        try? context.save()
     }
 
     func clear() {
@@ -169,7 +165,7 @@ final class TraceStore: ObservableObject {
             } else {
                 aiMeta = "\n  ai: " + ev.aiMetadata.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ", ")
             }
-            return "[\(ts)] \(ev.level.rawValue.uppercased()) \(ev.stage): \(ev.message)\(fp)\(sha)\(derived)\(thumb)\(meta)\(aiMeta)"
+            return "[\(ts)] \(ev.level.uppercased()) \(ev.stage): \(ev.message)\(fp)\(sha)\(derived)\(thumb)\(meta)\(aiMeta)"
         }.joined(separator: "\n")
     }
 }
@@ -178,7 +174,7 @@ struct TraceWindowView: View {
     @EnvironmentObject private var trace: TraceStore
 
     @State private var searchText: String = ""
-    @State private var selectedLevel: TraceEvent.Level? = nil
+    @State private var selectedLevel: String? = nil
     @State private var selectedStage: String? = nil
     @State private var selectedEventID: UUID?
 
@@ -213,6 +209,10 @@ struct TraceWindowView: View {
         Array(Set(trace.events.map { $0.stage })).sorted()
     }
 
+    private var levels: [String] {
+        Array(Set(trace.events.map { $0.level })).sorted()
+    }
+
     var body: some View {
         VStack(spacing: 10) {
             HStack(spacing: 8) {
@@ -220,9 +220,9 @@ struct TraceWindowView: View {
                     .textFieldStyle(.roundedBorder)
 
                 Picker("Level", selection: $selectedLevel) {
-                    Text("All").tag(TraceEvent.Level?.none)
-                    ForEach(TraceEvent.Level.allCases, id: \.self) { lvl in
-                        Text(lvl.rawValue.uppercased()).tag(Optional(lvl))
+                    Text("All").tag(String?.none)
+                    ForEach(levels, id: \.self) { lvl in
+                        Text(lvl.uppercased()).tag(Optional(lvl))
                     }
                 }
                 .pickerStyle(.menu)
@@ -274,7 +274,7 @@ struct TraceWindowView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
 
-                            Text(ev.level.rawValue.uppercased())
+                            Text(ev.level.uppercased())
                                 .font(.caption2)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
@@ -326,55 +326,14 @@ struct TraceWindowView: View {
 
                 Divider()
 
-                    if let dur = ev.durationMs {
-                        Text("Duration: \(Int(dur)) ms")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if let fp = ev.filePath {
-                        Text(fp)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                            .lineLimit(2)
-                            .truncationMode(.middle)
-                    }
-
-                    if let sha = ev.sha256, !sha.isEmpty {
-                        Text("SHA: \(sha)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    }
-
-                    if let derived = ev.derivedFolderPath, !derived.isEmpty {
-                        Text("Derived: \(derived)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    }
-
-                    if let art = ev.artifactPath, !art.isEmpty {
-                        Text("Artifact: \(art)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    }
-
-                    if !ev.metadata.isEmpty {
-                        Text(ev.metadata.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " • "))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    }
+                if let current = currentSelection {
+                    TraceDetailView(event: current)
+                        .frame(minWidth: 380)
+                } else {
+                    Text("Select an event to view details")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .padding(.vertical, 4)
-                .tag(ev.id)
-            }
-
-            if let current = currentSelection {
-                TracePreview(event: current)
             }
         }
         .padding()
@@ -382,11 +341,11 @@ struct TraceWindowView: View {
         .navigationTitle("Execution Trace")
     }
 
-    private var currentSelection: TraceEvent? {
+    private var currentSelection: AuditEventModel? {
         if let id = selectedEventID {
             return filtered.first(where: { $0.id == id })
         }
-        return filtered.last
+        return filtered.first
     }
 
     private func copyAll() {
@@ -423,52 +382,6 @@ struct TraceWindowView: View {
     }
 }
 
-private struct TracePreview: View {
-    let event: TraceEvent
-
-    @State private var thumbnail: NSImage? = nil
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Selected Event")
-                    .font(.headline)
-                Spacer()
-            }
-
-            Text(event.message)
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-
-            if let thumb = thumbnail {
-                Image(nsImage: thumb)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxHeight: 200)
-            } else if event.thumbnailPath != nil {
-                Text("Thumbnail preview not available")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding()
-        .background(.gray.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .onAppear { loadThumbnail() }
-        .onChange(of: event.id) { _ in loadThumbnail() }
-    }
-
-    private func loadThumbnail() {
-        #if canImport(AppKit)
-        if let path = event.thumbnailPath ?? event.artifactPath, let image = NSImage(contentsOfFile: path) {
-            thumbnail = image
-        } else {
-            thumbnail = nil
-        }
-        #endif
-    }
-}
-
 struct TraceDetailView: View {
     let event: AuditEventModel
 
@@ -480,7 +393,7 @@ struct TraceDetailView: View {
                     .textSelection(.enabled)
 
                 detailRow(title: "Stage", value: event.stage)
-                detailRow(title: "Level", value: event.level.rawValue.uppercased())
+                detailRow(title: "Level", value: event.level.uppercased())
                 detailRow(title: "Timestamp", value: event.createdAt.formatted(date: .abbreviated, time: .standard))
 
                 if let filePath = event.filePath {

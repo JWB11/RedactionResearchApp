@@ -317,7 +317,7 @@ actor IndexingService {
                     let ocr = ocrText
                     // If we have essentially no text, skip.
                     if extracted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (ocr?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
-                        tlog(.debug, "AI", "Skipped (no text)", filePath: fileURL.path, sha256: sha256, derivedPath: artifactDir.path, thumbnailPath: thumbPath)
+                        tlog(.debug, "AI", "Skipped (no text)", filePath: fileURL.path, sha256: sha256, derivedFolderPath: artifactDir.path, thumbnailPath: thumbPath)
                         return
                     }
 
@@ -336,7 +336,7 @@ actor IndexingService {
                         "Starting redaction inference",
                         filePath: fileURL.path,
                         sha256: sha256,
-                        derivedPath: artifactDir.path,
+                        derivedFolderPath: artifactDir.path,
                         thumbnailPath: thumbPath
                     )
 
@@ -478,7 +478,7 @@ actor IndexingService {
                                     try Self.writeJSON(meta, to: artifactDir.appendingPathComponent("meta.json"))
 
                                     if hasCache {
-                                        tlog(.debug, "Cache", "Artifacts exist; skipping heavy extraction", filePath: url.path, sha256: sha, derivedPath: artifactDir.path)
+                                        tlog(.debug, "Cache", "Artifacts exist; skipping heavy extraction", filePath: url.path, sha256: sha, derivedFolderPath: artifactDir.path)
                                         await sink.yield(.init(completed: i, total: expanded.count, message: "Cached; skipped \(displayName)", currentPath: url.path, sha256: sha, thumbnailPath: (cachedFlags?.hasThumb == true) ? cachedThumb.path : nil, derivedFolderPath: artifactDir.path))
                                         return
                                     }
@@ -489,7 +489,7 @@ actor IndexingService {
                                         if let text = try Self.extractText(from: url, type: type) {
                                             await stats.incTextExtracted()
                                             try text.write(to: cachedText, atomically: true, encoding: .utf8)
-                                            tlog(.info, "Text", "Extracted text", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, metadata: ["chars": "\(text.count)"])
+                                            tlog(.info, "Text", "Extracted text", filePath: url.path, sha256: sha, derivedFolderPath: artifactDir.path, metadata: ["chars": "\(text.count)"])
                                             await sink.yield(.init(completed: i, total: expanded.count, message: "Text extracted \(displayName)", currentPath: url.path, sha256: sha, derivedFolderPath: artifactDir.path, extractedTextPath: cachedText.path, extractedTextChars: text.count))
 
                                             // Optional AI inference (off by default)
@@ -502,7 +502,7 @@ actor IndexingService {
                                         if let text = extractedText {
                                             await stats.incTextExtracted()
                                             try text.write(to: cachedText, atomically: true, encoding: .utf8)
-                                            tlog(.info, "PDF", "Extracted PDF text", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, metadata: ["chars": "\(text.count)"])
+                                            tlog(.info, "PDF", "Extracted PDF text", filePath: url.path, sha256: sha, derivedFolderPath: artifactDir.path, metadata: ["chars": "\(text.count)"])
                                             await sink.yield(.init(completed: i, total: expanded.count, message: "PDF text extracted \(displayName)", currentPath: url.path, sha256: sha, derivedFolderPath: artifactDir.path, extractedTextPath: cachedText.path, extractedTextChars: text.count))
                                         }
 
@@ -537,7 +537,7 @@ actor IndexingService {
                                             // Optional: perceptual hash of thumbnail
                                             if let dh = Self.dHash(from: thumb) {
                                                 try dh.write(to: artifactDir.appendingPathComponent("dhash.txt"), atomically: true, encoding: .utf8)
-                                                tlog(.debug, "dHash", "Computed dHash", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, thumbnailPath: thumbPath, metadata: ["dhash": dh])
+                                                tlog(.debug, "dHash", "Computed dHash", filePath: url.path, sha256: sha, derivedFolderPath: artifactDir.path, thumbnailPath: thumbPath, metadata: ["dhash": dh])
                                                 await sink.yield(.init(completed: i, total: expanded.count, message: "Computed dHash \(displayName)", currentPath: url.path, sha256: sha, thumbnailPath: thumbPath, derivedFolderPath: artifactDir.path, dHash: dh))
                                             }
 
@@ -604,7 +604,7 @@ actor IndexingService {
                                             // Perceptual hash
                                             if let dh = Self.dHash(from: thumb) {
                                                 try dh.write(to: artifactDir.appendingPathComponent("dhash.txt"), atomically: true, encoding: .utf8)
-                                                  tlog(.debug, "dHash", "Computed dHash", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, thumbnailPath: thumbPath, metadata: ["dhash": dh])
+                                                  tlog(.debug, "dHash", "Computed dHash", filePath: url.path, sha256: sha, derivedFolderPath: artifactDir.path, thumbnailPath: thumbPath, metadata: ["dhash": dh])
                                                 await sink.yield(.init(completed: i, total: expanded.count, message: "Computed dHash \(displayName)", currentPath: url.path, sha256: sha, thumbnailPath: thumbPath, derivedFolderPath: artifactDir.path, dHash: dh))
                                             }
 
