@@ -244,10 +244,11 @@ actor IndexingService {
                     _ message: String,
                     filePath: String? = nil,
                     sha256: String? = nil,
-                    derivedPath: String? = nil,
+                    derivedFolderPath: String? = nil,
+                    artifactPath: String? = nil,
                     thumbnailPath: String? = nil,
-                    metadata: [String: String] = [:],
-                    aiMetadata: [String: String] = [:]
+                    durationMs: Double? = nil,
+                    metadata: [String: String] = [:]
                 ) {
                     trace?(TraceEvent(
                         level: level,
@@ -255,10 +256,11 @@ actor IndexingService {
                         message: message,
                         filePath: filePath,
                         sha256: sha256,
-                        derivedPath: derivedPath,
+                        derivedFolderPath: derivedFolderPath,
+                        artifactPath: artifactPath,
                         thumbnailPath: thumbnailPath,
-                        metadata: metadata,
-                        aiMetadata: aiMetadata
+                        durationMs: durationMs,
+                        metadata: metadata
                     ))
                 }
 
@@ -290,12 +292,16 @@ actor IndexingService {
                     errors: 0
                 ))
 
+                let indexStart = Date()
+
                 // Use sink for progress events
                 tlog(.info, "Index", "Indexing started", metadata: ["inputCount": "\(urls.count)", "forceReindex": "\(forceReindex)"])
                 await sink.yield(.init(completed: 0, total: 1, message: "Preparing inputs…"))
 
                 func runAIIfEnabled(extractedText: String?, ocrText: String?, fileURL: URL, sha256: String, artifactDir: URL, thumbPath: String?) async {
                     guard enableAI else { return }
+
+                    let aiStart = Date()
 
                     let extracted = extractedText ?? ""
                     let ocr = ocrText
@@ -347,10 +353,11 @@ actor IndexingService {
                             "Wrote suggestions",
                             filePath: fileURL.path,
                             sha256: sha256,
-                            derivedPath: artifactDir.path,
+                            derivedFolderPath: artifactDir.path,
+                            artifactPath: outURL.path,
                             thumbnailPath: thumbPath,
-                            metadata: ["path": outURL.path],
-                            aiMetadata: ["provenance": resp.provenance.rawValue, "warnings": resp.warnings.joined(separator: ";")]
+                            durationMs: Date().timeIntervalSince(aiStart) * 1000,
+                            metadata: ["path": outURL.path, "provenance": resp.provenance.rawValue]
                         )
                         await sink.yield(.init(
                             completed: 0,
@@ -367,8 +374,9 @@ actor IndexingService {
                             "Inference failed",
                             filePath: fileURL.path,
                             sha256: sha256,
-                            derivedPath: artifactDir.path,
+                            derivedFolderPath: artifactDir.path,
                             thumbnailPath: thumbPath,
+                            durationMs: Date().timeIntervalSince(aiStart) * 1000,
                             metadata: ["error": error.localizedDescription]
                         )
                     }
@@ -399,14 +407,19 @@ actor IndexingService {
                                 let displayName = url.lastPathComponent
                                 let fileStart = Date()
 
+                                var currentSha: String? = nil
+                                var currentDerivedPath: String? = nil
+                                var currentThumbPath: String? = nil
+
                                 tlog(.debug, "File", "Begin", filePath: url.path, metadata: ["name": displayName, "index": "\(i)", "total": "\(expanded.count)"])
                                 let c0 = await completed.snapshot()
                                 await sink.yield(.init(completed: c0, total: expanded.count, message: "Hashing \(displayName)…", currentPath: url.path))
 
                                 do {
                                     let (sha, size) = try Self.sha256Streaming(for: url)
+                                    currentSha = sha
                                     await stats.incHashed()
-                                    tlog(.info, "Hash", "SHA-256 computed", filePath: url.path, sha256: sha, metadata: ["bytes": "\(size)"])
+                                    tlog(.info, "Hash", "SHA-256 computed", filePath: url.path, sha256: sha, metadata: ["sha256": sha, "bytes": "\(size)"])
                                     let c1 = await completed.snapshot()
                                     await sink.yield(.init(completed: c1, total: expanded.count, message: "Hashed \(displayName)", currentPath: url.path, sha256: sha))
 
@@ -423,6 +436,7 @@ actor IndexingService {
 
                                     let artifactDir = derivedRoot.appendingPathComponent(sha, isDirectory: true)
                                     try FileManager.default.createDirectory(at: artifactDir, withIntermediateDirectories: true)
+                                    currentDerivedPath = artifactDir.path
 
                                     // Cache check: consult the prebuilt derived cache (fast) and only fall back to disk if needed.
                                     let cachedThumb = artifactDir.appendingPathComponent("thumb.png")
@@ -483,9 +497,20 @@ actor IndexingService {
                                         if let thumb {
                                             await stats.incThumb()
                                             try await MainActor.run { try Self.writePNG(thumb, to: cachedThumb) }
-                                            tlog(.info, "Thumb", "Wrote thumbnail", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, thumbnailPath: cachedThumb.path, metadata: ["path": cachedThumb.path])
+                                            tlog(
+                                                .info,
+                                                "Thumb",
+                                                "Wrote thumbnail",
+                                                filePath: url.path,
+                                                sha256: sha,
+                                                derivedFolderPath: artifactDir.path,
+                                                artifactPath: cachedThumb.path,
+                                                thumbnailPath: cachedThumb.path,
+                                                metadata: ["path": cachedThumb.path]
+                                            )
 
                                             let thumbPath = cachedThumb.path
+                                            currentThumbPath = thumbPath
                                             await sink.yield(.init(completed: i, total: expanded.count, message: "Preview ready \(displayName)", currentPath: url.path, sha256: sha, thumbnailPath: thumbPath, derivedFolderPath: artifactDir.path))
 
                                             // If OCR is skipped, we can still run AI on extracted PDF text.
@@ -509,7 +534,16 @@ actor IndexingService {
                                                 if let ocr = try await Self.ocrText(from: thumb) {
                                                     await stats.incTextExtracted()
                                                     try ocr.write(to: cachedOCR, atomically: true, encoding: .utf8)
-                                                      tlog(.info, "OCR", "Recognized text", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, thumbnailPath: thumbPath, metadata: ["chars": "\(ocr.count)"])
+                                                    tlog(
+                                                        .info,
+                                                        "OCR",
+                                                        "Recognized text",
+                                                        filePath: url.path,
+                                                        sha256: sha,
+                                                        derivedFolderPath: artifactDir.path,
+                                                        thumbnailPath: thumbPath,
+                                                        metadata: ["chars": "\(ocr.count)"]
+                                                    )
                                                     await sink.yield(.init(completed: i, total: expanded.count, message: "OCR complete \(displayName)", currentPath: url.path, sha256: sha, thumbnailPath: thumbPath, derivedFolderPath: artifactDir.path, ocrTextPath: cachedOCR.path, extractedTextChars: extractedCountForOCR, ocrTextChars: ocr.count))
 
                                                     // Optional AI inference (use both extracted + OCR)
@@ -530,9 +564,20 @@ actor IndexingService {
                                         if let thumb {
                                             await stats.incThumb()
                                             try await MainActor.run { try Self.writePNG(thumb, to: cachedThumb) }
-                                              tlog(.info, "Thumb", "Wrote thumbnail", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, thumbnailPath: cachedThumb.path, metadata: ["path": cachedThumb.path])
+                                            tlog(
+                                                .info,
+                                                "Thumb",
+                                                "Wrote thumbnail",
+                                                filePath: url.path,
+                                                sha256: sha,
+                                                derivedFolderPath: artifactDir.path,
+                                                artifactPath: cachedThumb.path,
+                                                thumbnailPath: cachedThumb.path,
+                                                metadata: ["path": cachedThumb.path]
+                                            )
 
                                             let thumbPath = cachedThumb.path
+                                            currentThumbPath = thumbPath
                                             await sink.yield(.init(completed: i, total: expanded.count, message: "Preview ready \(displayName)", currentPath: url.path, sha256: sha, thumbnailPath: thumbPath, derivedFolderPath: artifactDir.path))
 
                                             // Perceptual hash
@@ -551,7 +596,16 @@ actor IndexingService {
                                             if let ocr = try await Self.ocrText(from: thumb) {
                                                 await stats.incTextExtracted()
                                                 try ocr.write(to: cachedOCR, atomically: true, encoding: .utf8)
-                                                  tlog(.info, "OCR", "Recognized text", filePath: url.path, sha256: sha, derivedPath: artifactDir.path, thumbnailPath: thumbPath, metadata: ["chars": "\(ocr.count)"])
+                                                tlog(
+                                                    .info,
+                                                    "OCR",
+                                                    "Recognized text",
+                                                    filePath: url.path,
+                                                    sha256: sha,
+                                                    derivedFolderPath: artifactDir.path,
+                                                    thumbnailPath: thumbPath,
+                                                    metadata: ["chars": "\(ocr.count)"]
+                                                )
                                                 await sink.yield(.init(completed: i, total: expanded.count, message: "OCR complete \(displayName)", currentPath: url.path, sha256: sha, thumbnailPath: thumbPath, derivedFolderPath: artifactDir.path, ocrTextPath: cachedOCR.path, extractedTextChars: 0, ocrTextChars: ocr.count))
 
                                                 await runAIIfEnabled(extractedText: nil, ocrText: ocr, fileURL: url, sha256: sha, artifactDir: artifactDir, thumbPath: thumbPath)
@@ -568,7 +622,17 @@ actor IndexingService {
 
                                 _ = await completed.increment()
                                 let ms = Int(Date().timeIntervalSince(fileStart) * 1000)
-                                tlog(.debug, "File", "End", filePath: url.path, metadata: ["elapsedMs": "\(ms)"])
+                                tlog(
+                                    .debug,
+                                    "File",
+                                    "End",
+                                    filePath: url.path,
+                                    sha256: currentSha,
+                                    derivedFolderPath: currentDerivedPath,
+                                    thumbnailPath: currentThumbPath,
+                                    durationMs: Double(ms),
+                                    metadata: ["elapsedMs": "\(ms)"]
+                                )
                             }
                         }
                         await group.waitForAll()
@@ -578,7 +642,12 @@ actor IndexingService {
                     let summary = await stats.snapshot()
                     let summaryMsg = "Done. Files: \(summary.totalFiles), hashed: \(summary.hashed), text: \(summary.textExtracted), thumbs: \(summary.thumbnailsGenerated), OCR tried: \(summary.ocrAttempted), errors: \(summary.errors)."
                     await sink.yield(.init(kind: .finished, completed: summary.totalFiles, total: summary.totalFiles, message: summaryMsg))
-                    tlog(.info, "Index", "Indexing finished", metadata: [
+                    tlog(
+                        .info,
+                        "Index",
+                        "Indexing finished",
+                        durationMs: Date().timeIntervalSince(indexStart) * 1000,
+                        metadata: [
                         "files": "\(summary.totalFiles)",
                         "hashed": "\(summary.hashed)",
                         "text": "\(summary.textExtracted)",
