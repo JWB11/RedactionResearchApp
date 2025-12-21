@@ -215,7 +215,7 @@ actor DuplicateAnalysisService {
 
     // MARK: - Member building + scoring
 
-    private func buildMembers(for docs: [DocumentSnapshot]) async -> [ClusterMember] {
+    func buildMembers(for docs: [DocumentSnapshot]) async -> [ClusterMember] {
         // Cache text counts per path to avoid rereading the same derived artifacts.
         actor TextCountCache {
             private var map: [String: Int] = [:]

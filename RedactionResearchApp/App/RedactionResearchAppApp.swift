@@ -7,11 +7,15 @@ import AppKit
 import CoreText
 #endif
 
+#if canImport(AppKit)
+import AppKit
+#endif
+
 @main
 struct RedactionResearchAppApp: App {
     @Environment(\.openWindow) private var openWindow
+    private let container: ModelContainer
 
-    @State private var modelContainer: ModelContainer
     @StateObject private var traceStore: TraceStore
     @State private var initializationError: String?
 
@@ -45,18 +49,20 @@ struct RedactionResearchAppApp: App {
                     Text(initializationError ?? "")
                 }
         }
-        .modelContainer(modelContainer)
+        .modelContainer(for: [CaseModel.self, DocumentModel.self, ClusterModel.self])
 
         // Secondary window: live execution trace
         WindowGroup("Execution Trace", id: "execution-trace") {
             TraceWindowView()
                 .environmentObject(traceStore)
         }
+        .modelContainer(container)
 
         Settings {
             SettingsView()
                 .environmentObject(traceStore)
         }
+        .modelContainer(container)
 
         .commands {
             CommandGroup(after: .windowArrangement) {
@@ -84,6 +90,23 @@ final class TraceStore: ObservableObject {
         Task { await reload() }
     }
 
+    init(container: ModelContainer) {
+        self.container = container
+        self.context = ModelContext(container)
+        loadPersisted()
+    }
+
+    func loadPersisted(limit: Int = 5000) {
+        let descriptor = FetchDescriptor<AuditEventModel>(
+            predicate: nil,
+            sortBy: [SortDescriptor(\.timestamp, order: .forward)]
+        )
+        if let fetched = try? context.fetch(descriptor) {
+            let trimmed = fetched.suffix(limit)
+            events = trimmed.map { TraceEvent(model: $0) }
+        }
+    }
+
     func log(_ event: TraceEvent) {
         let model = AuditEventModel(event)
         context.insert(model)
@@ -100,6 +123,10 @@ final class TraceStore: ObservableObject {
         if let items = try? context.fetch(descriptor) {
             events = items
         }
+
+        let model = event.asModel()
+        context.insert(model)
+        try? context.save()
     }
 
     func clear() {
@@ -222,9 +249,20 @@ struct TraceWindowView: View {
                     exportPDF()
                     #endif
                 }
+                .pickerStyle(.menu)
+
+                Spacer()
 
                 Button("Clear") {
                     trace.clear()
+                }
+
+                Menu("Export") {
+                    Button("Copy All") {
+                        copyAll()
+                    }
+                    Button("Export Text…") { exportText() }
+                    Button("Export PDF…") { exportPDF() }
                 }
             }
 
@@ -288,21 +326,146 @@ struct TraceWindowView: View {
 
                 Divider()
 
-                VStack(alignment: .leading, spacing: 10) {
-                    if let selected = filtered.first(where: { $0.id == selectedEventID }) ?? filtered.first {
-                        TraceDetailView(event: selected)
-                    } else {
-                        Text("Select an event to preview details")
-                            .font(.caption)
+                    if let dur = ev.durationMs {
+                        Text("Duration: \(Int(dur)) ms")
+                            .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+
+                    if let fp = ev.filePath {
+                        Text(fp)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                    }
+
+                    if let sha = ev.sha256, !sha.isEmpty {
+                        Text("SHA: \(sha)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+
+                    if let derived = ev.derivedFolderPath, !derived.isEmpty {
+                        Text("Derived: \(derived)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+
+                    if let art = ev.artifactPath, !art.isEmpty {
+                        Text("Artifact: \(art)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+
+                    if !ev.metadata.isEmpty {
+                        Text(ev.metadata.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " • "))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(.vertical, 4)
+                .tag(ev.id)
+            }
+
+            if let current = currentSelection {
+                TracePreview(event: current)
             }
         }
         .padding()
         .frame(minWidth: 820, minHeight: 520)
         .navigationTitle("Execution Trace")
+    }
+
+    private var currentSelection: TraceEvent? {
+        if let id = selectedEventID {
+            return filtered.first(where: { $0.id == id })
+        }
+        return filtered.last
+    }
+
+    private func copyAll() {
+        #if canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(trace.exportText(events: filtered), forType: .string)
+        #endif
+    }
+
+    private func exportText() {
+        #if canImport(AppKit)
+        let panel = NSSavePanel()
+        panel.allowedFileTypes = ["txt"]
+        panel.nameFieldStringValue = "ExecutionTrace.txt"
+        if panel.runModal() == .OK, let url = panel.url {
+            try? trace.exportText(events: filtered).write(to: url, atomically: true, encoding: .utf8)
+        }
+        #endif
+    }
+
+    private func exportPDF() {
+        #if canImport(AppKit)
+        let panel = NSSavePanel()
+        panel.allowedFileTypes = ["pdf"]
+        panel.nameFieldStringValue = "ExecutionTrace.pdf"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 720, height: 0))
+        textView.string = trace.exportText(events: filtered)
+        textView.sizeToFit()
+        let data = textView.dataWithPDF(inside: textView.bounds)
+        try? data.write(to: url)
+        #endif
+    }
+}
+
+private struct TracePreview: View {
+    let event: TraceEvent
+
+    @State private var thumbnail: NSImage? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Selected Event")
+                    .font(.headline)
+                Spacer()
+            }
+
+            Text(event.message)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+
+            if let thumb = thumbnail {
+                Image(nsImage: thumb)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 200)
+            } else if event.thumbnailPath != nil {
+                Text("Thumbnail preview not available")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding()
+        .background(.gray.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .onAppear { loadThumbnail() }
+        .onChange(of: event.id) { _ in loadThumbnail() }
+    }
+
+    private func loadThumbnail() {
+        #if canImport(AppKit)
+        if let path = event.thumbnailPath ?? event.artifactPath, let image = NSImage(contentsOfFile: path) {
+            thumbnail = image
+        } else {
+            thumbnail = nil
+        }
+        #endif
     }
 }
 
