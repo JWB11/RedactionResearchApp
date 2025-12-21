@@ -3,6 +3,8 @@ import SwiftData
 
 @Model
 final class DocumentModel {
+    static let currentIndexingVersion = 1
+
     @Attribute(.unique) var id: UUID
 
     // Case ownership
@@ -10,6 +12,7 @@ final class DocumentModel {
 
     var fileName: String
     var localPath: String
+    var normalizedLocalPath: String?
     var uti: String?
 
     // Exact-duplicate identity
@@ -17,30 +20,78 @@ final class DocumentModel {
 
     // Derived artifacts written by IndexingService
     var derivedFolderPath: String?
+    var normalizedDerivedFolderPath: String?
     var extractedTextPath: String?
+    var normalizedExtractedTextPath: String?
     var ocrTextPath: String?
+    var normalizedOCRTextPath: String?
     var thumbnailPath: String?
+    var normalizedThumbnailPath: String?
     var dHash: String?
 
     // Bookkeeping
+    var indexingVersion: Int
     var createdAt: Date
     var lastIndexedAt: Date?
 
-    init(fileName: String, localPath: String, uti: String? = nil, caseID: UUID) {
-        self.id = UUID()
+    // Relationships
+    @Relationship(deleteRule: .cascade, inverse: \ClusterMemberModel.document)
+    var clusterMemberships: [ClusterMemberModel] = []
+
+    @Relationship(deleteRule: .cascade, inverse: \ReconstructionSuggestionModel.document)
+    var reconstructionSuggestions: [ReconstructionSuggestionModel] = []
+
+    @Relationship(deleteRule: .nullify, inverse: \AuditEventModel.document)
+    var auditEvents: [AuditEventModel] = []
+
+    init(
+        id: UUID = UUID(),
+        fileName: String,
+        localPath: String,
+        normalizedLocalPath: String? = nil,
+        uti: String? = nil,
+        caseID: UUID,
+        sha256: String? = nil,
+        derivedFolderPath: String? = nil,
+        normalizedDerivedFolderPath: String? = nil,
+        extractedTextPath: String? = nil,
+        normalizedExtractedTextPath: String? = nil,
+        ocrTextPath: String? = nil,
+        normalizedOCRTextPath: String? = nil,
+        thumbnailPath: String? = nil,
+        normalizedThumbnailPath: String? = nil,
+        dHash: String? = nil,
+        indexingVersion: Int = DocumentModel.currentIndexingVersion,
+        createdAt: Date = Date(),
+        lastIndexedAt: Date? = nil
+    ) {
+        self.id = id
         self.caseID = caseID
         self.fileName = fileName
         self.localPath = localPath
+        self.normalizedLocalPath = normalizedLocalPath ?? DocumentModel.normalizePath(localPath)
         self.uti = uti
 
-        self.sha256 = nil
-        self.derivedFolderPath = nil
-        self.extractedTextPath = nil
-        self.ocrTextPath = nil
-        self.thumbnailPath = nil
-        self.dHash = nil
+        self.sha256 = sha256
+        self.derivedFolderPath = derivedFolderPath
+        self.normalizedDerivedFolderPath = normalizedDerivedFolderPath ?? DocumentModel.normalizePath(derivedFolderPath)
+        self.extractedTextPath = extractedTextPath
+        self.normalizedExtractedTextPath = normalizedExtractedTextPath ?? DocumentModel.normalizePath(extractedTextPath)
+        self.ocrTextPath = ocrTextPath
+        self.normalizedOCRTextPath = normalizedOCRTextPath ?? DocumentModel.normalizePath(ocrTextPath)
+        self.thumbnailPath = thumbnailPath
+        self.normalizedThumbnailPath = normalizedThumbnailPath ?? DocumentModel.normalizePath(thumbnailPath)
+        self.dHash = dHash
 
-        self.createdAt = Date()
-        self.lastIndexedAt = nil
+        self.indexingVersion = indexingVersion
+        self.createdAt = createdAt
+        self.lastIndexedAt = lastIndexedAt
+    }
+}
+
+extension DocumentModel {
+    static func normalizePath(_ path: String?) -> String? {
+        guard let path, !path.isEmpty else { return nil }
+        return URL(fileURLWithPath: path).standardizedFileURL.path
     }
 }

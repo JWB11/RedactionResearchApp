@@ -372,6 +372,7 @@ struct ContentView: View {
             || (doc.ocrTextPath?.isEmpty == false)
             || (doc.dHash?.isEmpty == false)
 
+        if doc.indexingVersion < DocumentModel.currentIndexingVersion { return true }
         if !hasDerived { return true }
         if !hasAnyArtifact { return true }
         if doc.lastIndexedAt == nil { return true }
@@ -392,15 +393,28 @@ struct ContentView: View {
         guard let resolved else { return }
 
         if let sha = ev.sha256, !sha.isEmpty { resolved.sha256 = sha }
-        if let p = ev.derivedFolderPath, !p.isEmpty { resolved.derivedFolderPath = p }
-        if let p = ev.thumbnailPath, !p.isEmpty { resolved.thumbnailPath = p }
-        if let p = ev.extractedTextPath, !p.isEmpty { resolved.extractedTextPath = p }
-        if let p = ev.ocrTextPath, !p.isEmpty { resolved.ocrTextPath = p }
+        if let p = ev.derivedFolderPath, !p.isEmpty {
+            resolved.derivedFolderPath = p
+            resolved.normalizedDerivedFolderPath = DocumentModel.normalizePath(p)
+        }
+        if let p = ev.thumbnailPath, !p.isEmpty {
+            resolved.thumbnailPath = p
+            resolved.normalizedThumbnailPath = DocumentModel.normalizePath(p)
+        }
+        if let p = ev.extractedTextPath, !p.isEmpty {
+            resolved.extractedTextPath = p
+            resolved.normalizedExtractedTextPath = DocumentModel.normalizePath(p)
+        }
+        if let p = ev.ocrTextPath, !p.isEmpty {
+            resolved.ocrTextPath = p
+            resolved.normalizedOCRTextPath = DocumentModel.normalizePath(p)
+        }
         if let dh = ev.dHash, !dh.isEmpty { resolved.dHash = dh }
 
         // Consider any derived output as proof the doc is indexed.
         if ev.derivedFolderPath != nil || ev.thumbnailPath != nil || ev.extractedTextPath != nil || ev.ocrTextPath != nil || ev.dHash != nil {
             resolved.lastIndexedAt = Date()
+            resolved.indexingVersion = DocumentModel.currentIndexingVersion
         }
 
         indexedUpdateCount += 1
@@ -416,6 +430,7 @@ struct ContentView: View {
 
             for doc in caseDocuments {
                 let fileURL = URL(fileURLWithPath: doc.localPath)
+                doc.normalizedLocalPath = DocumentModel.normalizePath(doc.localPath)
 
                 // Ensure sha256 is present (IndexingService already computed it, but we don't currently
                 // return the value through the stream, so we recompute here if needed).
@@ -432,21 +447,26 @@ struct ContentView: View {
                 }
 
                 doc.derivedFolderPath = folder.path
+                doc.normalizedDerivedFolderPath = DocumentModel.normalizePath(folder.path)
                 doc.lastIndexedAt = Date()
+                doc.indexingVersion = DocumentModel.currentIndexingVersion
 
                 let textURL = folder.appendingPathComponent("text.txt")
                 if FileManager.default.fileExists(atPath: textURL.path) {
                     doc.extractedTextPath = textURL.path
+                    doc.normalizedExtractedTextPath = DocumentModel.normalizePath(textURL.path)
                 }
 
                 let ocrURL = folder.appendingPathComponent("ocr.txt")
                 if FileManager.default.fileExists(atPath: ocrURL.path) {
                     doc.ocrTextPath = ocrURL.path
+                    doc.normalizedOCRTextPath = DocumentModel.normalizePath(ocrURL.path)
                 }
 
                 let thumbURL = folder.appendingPathComponent("thumb.png")
                 if FileManager.default.fileExists(atPath: thumbURL.path) {
                     doc.thumbnailPath = thumbURL.path
+                    doc.normalizedThumbnailPath = DocumentModel.normalizePath(thumbURL.path)
                 }
 
                 let dhURL = folder.appendingPathComponent("dhash.txt")

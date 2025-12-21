@@ -12,7 +12,7 @@ struct RedactionResearchAppApp: App {
             ContentView()
                 .environmentObject(traceStore)
         }
-        .modelContainer(for: [CaseModel.self, DocumentModel.self])
+        .modelContainer(for: RedactionResearchSchemaV2.self, migrationPlan: RedactionResearchMigrationPlan.self)
 
         // Secondary window: live execution trace
         WindowGroup("Execution Trace", id: "execution-trace") {
