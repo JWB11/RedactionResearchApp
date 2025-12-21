@@ -4,11 +4,9 @@ import CoreGraphics
 
 #if canImport(AppKit)
 import AppKit
+#if canImport(CoreText)
 import CoreText
 #endif
-
-#if canImport(AppKit)
-import AppKit
 #endif
 
 @main
@@ -106,7 +104,6 @@ final class TraceStore: ObservableObject {
         if let fetched = try? context.fetch(descriptor) {
             let trimmed = Array(fetched.suffix(limit))
             events = trimmed
-            events = Array(fetched.suffix(limit))
         }
     }
 
