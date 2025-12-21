@@ -67,7 +67,6 @@ struct RedactionResearchAppApp: App {
                 .environmentObject(traceStore)
         }
         .modelContainer(container)
-
         .commands {
             CommandGroup(after: .windowArrangement) {
                 Divider()

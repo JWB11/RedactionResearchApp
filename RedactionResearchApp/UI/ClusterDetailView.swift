@@ -8,6 +8,7 @@ struct ClusterDetailView: View {
     let clusterAILoading: Set<UUID>
     let expandedClusters: Set<UUID>
     let showFullClusterDetail: Set<UUID>
+    let clusterSuggestions: [UUID: [ClusterSuggestion]]
     let onAnalyze: () -> Void
     let onExplainCluster: (ClusterAnalysisService.SimilarityCluster) -> Void
     let onToggleExpand: (UUID) -> Void
@@ -44,6 +45,7 @@ struct ClusterDetailView: View {
                         ForEach(clusters) { cluster in
                             ClusterCard(
                                 cluster: cluster,
+                                suggestions: clusterSuggestions[cluster.id] ?? [],
                                 aiText: clusterAIText[cluster.id],
                                 isLoadingAI: clusterAILoading.contains(cluster.id),
                                 isExpanded: expandedClusters.contains(cluster.id),
@@ -72,6 +74,7 @@ struct ClusterDetailView: View {
 
 private struct ClusterCard: View {
     let cluster: ClusterAnalysisService.SimilarityCluster
+    let suggestions: [ClusterSuggestion]
     let aiText: String?
     let isLoadingAI: Bool
     let isExpanded: Bool
@@ -122,6 +125,56 @@ private struct ClusterCard: View {
 
             memberSection(title: "Exact duplicates", members: cluster.exactDuplicates)
             memberSection(title: "Variants", members: cluster.variants)
+
+            if isExpanded && !suggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Cluster suggestions")
+                        .font(.subheadline.weight(.semibold))
+
+                    ForEach(suggestions) { suggestion in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Merged text from best candidates")
+                                        .font(.caption)
+                                    Text("Basis: \(suggestion.basisFile)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button {
+                                    copyToClipboard(suggestion.mergedText)
+                                } label: {
+                                    Label("Copy suggestion", systemImage: "doc.on.doc")
+                                }
+                                .buttonStyle(.bordered)
+                            }
+
+                            Text(suggestion.mergedText)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .padding(8)
+                                .background(.gray.opacity(0.08))
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                            if !suggestion.evidence.isEmpty {
+                                let citations = suggestion.evidence.map { ev -> String in
+                                    var parts: [String] = [ev.sourceFile]
+                                    if let page = ev.page { parts.append("p. \(page)") }
+                                    if let line = ev.line { parts.append("line \(line)") }
+                                    return parts.joined(separator: ", ")
+                                }
+                                Text("Citations: " + citations.joined(separator: " • "))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(8)
+                        .background(.blue.opacity(0.05))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                }
+            }
 
             if isExpanded {
                 let text = aiText ?? "No AI explanation yet."
@@ -198,5 +251,13 @@ private struct ClusterCard: View {
         } catch {
             return nil
         }
+    }
+
+    private func copyToClipboard(_ text: String) {
+        #if canImport(AppKit)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        #endif
     }
 }

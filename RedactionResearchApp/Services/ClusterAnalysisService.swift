@@ -12,12 +12,12 @@ actor ClusterAnalysisService {
     struct SimilarityCluster: Identifiable, Sendable {
         let id: UUID
         let title: String
-        let summary: String
-        let confidence: Double
-        let reasons: [ClusterReason]
+        var summary: String
+        var confidence: Double
+        var reasons: [ClusterReason]
         let bestCandidateID: UUID?
         let exactDuplicates: [DuplicateAnalysisService.ClusterMember]
-        let variants: [DuplicateAnalysisService.ClusterMember]
+        var variants: [DuplicateAnalysisService.ClusterMember]
     }
 
     private let duplicateAnalyzer = DuplicateAnalysisService()
