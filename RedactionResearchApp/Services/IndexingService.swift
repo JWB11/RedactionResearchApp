@@ -46,6 +46,8 @@ actor IndexingService {
         var extractedTextChars: Int?
         /// Character count of OCR text (when applicable).
         var ocrTextChars: Int?
+        /// Active case ID for this indexing run (used for UI routing).
+        var caseID: UUID?
 
         init(
             kind: Kind = .update,
@@ -60,7 +62,8 @@ actor IndexingService {
             ocrTextPath: String? = nil,
             dHash: String? = nil,
             extractedTextChars: Int? = nil,
-            ocrTextChars: Int? = nil
+            ocrTextChars: Int? = nil,
+            caseID: UUID? = nil
         ) {
             self.kind = kind
             self.completed = completed
@@ -75,6 +78,7 @@ actor IndexingService {
             self.dHash = dHash
             self.extractedTextChars = extractedTextChars
             self.ocrTextChars = ocrTextChars
+            self.caseID = caseID
         }
     }
 
@@ -88,6 +92,38 @@ actor IndexingService {
         var errors: Int
     }
 
+    static let currentIndexingVersion = 1
+
+    static func needsIndexing(for doc: DocumentModel, force: Bool) -> Bool {
+        if force { return true }
+
+        if doc.indexingVersion < currentIndexingVersion { return true }
+        if doc.lastIndexedAt == nil { return true }
+        guard let derivedFolderPath = doc.derivedFolderPath, !derivedFolderPath.isEmpty else { return true }
+
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        if !fm.fileExists(atPath: derivedFolderPath, isDirectory: &isDir) || !isDir.boolValue {
+            return true
+        }
+
+        let artifactPaths = [doc.thumbnailPath, doc.extractedTextPath, doc.ocrTextPath]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+
+        if artifactPaths.isEmpty {
+            return true
+        }
+
+        for path in artifactPaths {
+            if !fm.fileExists(atPath: path) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     /// Indexes the provided URLs (files, folders, and ZIPs), writing derived artifacts into
     /// Application Support/RedactionResearchApp/Derived.
     ///
@@ -96,6 +132,7 @@ actor IndexingService {
         urls: [URL],
         enableAI: Bool = false,
         forceReindex: Bool = false,
+        caseID: UUID? = nil,
         trace: (@Sendable (TraceEvent) -> Void)? = nil
     ) -> AsyncStream<ProgressEvent> {
         AsyncStream { continuation in
@@ -106,10 +143,14 @@ actor IndexingService {
 
                 actor YieldSink {
                     private let continuation: AsyncStream<ProgressEvent>.Continuation
-                    init(_ continuation: AsyncStream<ProgressEvent>.Continuation) {
+                    private let caseID: UUID?
+                    init(_ continuation: AsyncStream<ProgressEvent>.Continuation, caseID: UUID?) {
                         self.continuation = continuation
+                        self.caseID = caseID
                     }
                     func yield(_ ev: ProgressEvent) {
+                        var ev = ev
+                        ev.caseID = caseID
                         continuation.yield(ev)
                     }
                     func finish() {
@@ -201,7 +242,7 @@ actor IndexingService {
                     trace?(TraceEvent(level: level, stage: stage, message: message, filePath: filePath, metadata: metadata))
                 }
 
-                let sink = YieldSink(continuation)
+                let sink = YieldSink(continuation, caseID: caseID)
 
                 // Bounded parallelism. Hashing can run higher, OCR should stay moderate.
                 // Start conservative to keep UI responsive and avoid thrashing.
