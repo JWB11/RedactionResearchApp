@@ -104,17 +104,18 @@ final class AIService: ObservableObject {
 
     /// Summarize text using on-device first. Cloud is used only if explicitly enabled.
     func summarize(_ req: SummarizeRequest) async throws -> AIResponse {
+        let start = Date()
         trace?(TraceEvent(stage: "AI", message: "Summarize requested", metadata: ["len": "\(req.text.count)"]))
 
         if localAIEnabled {
             let text = try await summarizeLocal(req)
-            trace?(TraceEvent(stage: "AI", message: "Summarize completed (local)", metadata: ["chars": "\(text.count)"]))
+            trace?(TraceEvent(stage: "AI", message: "Summarize completed (local)", durationMs: Date().timeIntervalSince(start) * 1000, metadata: ["chars": "\(text.count)", "provenance": Provenance.localOnDevice.rawValue]))
             return AIResponse(text: text, provenance: .localOnDevice, warnings: [])
         }
 
         if cloudAIEnabled {
             let text = try await summarizeCloud(req)
-            trace?(TraceEvent(stage: "AI", message: "Summarize completed (cloud)", metadata: ["chars": "\(text.count)"]))
+            trace?(TraceEvent(stage: "AI", message: "Summarize completed (cloud)", durationMs: Date().timeIntervalSince(start) * 1000, metadata: ["chars": "\(text.count)", "provenance": Provenance.cloud.rawValue]))
             return AIResponse(text: text, provenance: .cloud, warnings: ["Cloud output—verify before use."])
         }
 
@@ -123,17 +124,18 @@ final class AIService: ObservableObject {
 
     /// Infer likely redacted content (suggestions only).
     func inferRedactions(_ req: RedactionInferenceRequest) async throws -> AIResponse {
+        let start = Date()
         trace?(TraceEvent(stage: "AI", message: "Redaction inference requested", metadata: ["extracted": "\(req.extractedText.count)", "ocr": "\(req.ocrText?.count ?? 0)"]))
 
         if localAIEnabled {
             let text = try await redactLocal(req)
-            trace?(TraceEvent(stage: "AI", message: "Redaction inference completed (local)", metadata: ["chars": "\(text.count)"]))
+            trace?(TraceEvent(stage: "AI", message: "Redaction inference completed (local)", durationMs: Date().timeIntervalSince(start) * 1000, metadata: ["chars": "\(text.count)", "provenance": Provenance.localOnDevice.rawValue]))
             return AIResponse(text: text, provenance: .localOnDevice, warnings: ["Suggestions only."])
         }
 
         if cloudAIEnabled {
             let text = try await redactCloud(req)
-            trace?(TraceEvent(stage: "AI", message: "Redaction inference completed (cloud)", metadata: ["chars": "\(text.count)"]))
+            trace?(TraceEvent(stage: "AI", message: "Redaction inference completed (cloud)", durationMs: Date().timeIntervalSince(start) * 1000, metadata: ["chars": "\(text.count)", "provenance": Provenance.cloud.rawValue]))
             return AIResponse(text: text, provenance: .cloud, warnings: ["Cloud output—verify before use."])
         }
 
@@ -142,13 +144,16 @@ final class AIService: ObservableObject {
 
     /// Explain why a duplicate cluster picked a "best" candidate.
     func explainCluster(text: String) async throws -> AIResponse {
+        let start = Date()
         trace?(TraceEvent(stage: "AI", message: "Cluster explanation requested", metadata: ["len": "\(text.count)"]))
         if localAIEnabled {
             let out = try await explainLocal(text)
+            trace?(TraceEvent(stage: "AI", message: "Cluster explanation completed (local)", durationMs: Date().timeIntervalSince(start) * 1000, metadata: ["len": "\(text.count)", "provenance": Provenance.localOnDevice.rawValue]))
             return AIResponse(text: out, provenance: .localOnDevice, warnings: [])
         }
         if cloudAIEnabled {
             let out = try await explainCloud(text)
+            trace?(TraceEvent(stage: "AI", message: "Cluster explanation completed (cloud)", durationMs: Date().timeIntervalSince(start) * 1000, metadata: ["len": "\(text.count)", "provenance": Provenance.cloud.rawValue]))
             return AIResponse(text: out, provenance: .cloud, warnings: ["Cloud output—verify before use."])
         }
         throw AIError.consentRequired

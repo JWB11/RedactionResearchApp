@@ -31,6 +31,7 @@ final class ProcessingStatus: ObservableObject {
 
 struct ContentView: View {
     @EnvironmentObject private var traceStore: TraceStore
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \DocumentModel.createdAt, order: .reverse) private var documents: [DocumentModel]
 
@@ -60,6 +61,7 @@ struct ContentView: View {
     @State private var pendingRunURLs: [URL] = []
 
     @State private var indexedUpdateCount: Int = 0
+    @State private var processingStartedAt: Date? = nil
 
     @State private var duplicateClusters: [DuplicateAnalysisService.DuplicateCluster] = []
     @State private var isAnalyzingDuplicates: Bool = false
@@ -230,6 +232,13 @@ struct ContentView: View {
                         .labelStyle(.iconOnly)
                 }
                 .disabled(processing.isProcessing)
+
+                Button {
+                    openWindow(id: "execution-trace")
+                } label: {
+                    Label("Execution Trace", systemImage: "waveform.path.ecg")
+                        .labelStyle(.iconOnly)
+                }
             }
         }
         .onDisappear {
@@ -282,6 +291,7 @@ struct ContentView: View {
         indexedUpdateCount = 0
         processing.status = force ? "Starting (force re-index)…" : "Starting indexing…"
         processing.progress = 0
+        processingStartedAt = Date()
         traceStore.log(TraceEvent(stage: "UI", message: "User started indexing", metadata: [
             "documents": "\(urlsToIndex.count)",
             "skipCached": "\(skipCachedOnRun)",
@@ -328,6 +338,7 @@ struct ContentView: View {
             }
 
             if Task.isCancelled {
+                let duration = processingStartedAt.map { Date().timeIntervalSince($0) * 1000 }
                 await MainActor.run {
                     processing.status = "Cancelled."
                     processing.isProcessing = false
@@ -336,7 +347,8 @@ struct ContentView: View {
                     processing.currentExtractedTextChars = nil
                     processing.currentOCRTextChars = nil
                 }
-                traceStore.log(TraceEvent(level: .warning, stage: "UI", message: "Indexing cancelled by user"))
+                traceStore.log(TraceEvent(level: .warning, stage: "UI", message: "Indexing cancelled by user", durationMs: duration))
+                processingStartedAt = nil
                 return
             }
 
@@ -355,7 +367,9 @@ struct ContentView: View {
                 processing.currentExtractedTextChars = nil
                 processing.currentOCRTextChars = nil
             }
-            traceStore.log(TraceEvent(stage: "UI", message: "Indexing completed"))
+            let duration = processingStartedAt.map { Date().timeIntervalSince($0) * 1000 }
+            traceStore.log(TraceEvent(stage: "UI", message: "Indexing completed", durationMs: duration))
+            processingStartedAt = nil
         }
     }
 
