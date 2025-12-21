@@ -32,6 +32,7 @@ final class ProcessingStatus: ObservableObject {
 
 struct ContentView: View {
     @EnvironmentObject private var traceStore: TraceStore
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \DocumentModel.createdAt, order: .reverse) private var documents: [DocumentModel]
 
@@ -66,10 +67,11 @@ struct ContentView: View {
     @State private var pendingRunURLs: [URL] = []
 
     @State private var indexedUpdateCount: Int = 0
+    @State private var processingStartedAt: Date? = nil
 
-    @State private var duplicateClusters: [DuplicateAnalysisService.DuplicateCluster] = []
-    @State private var isAnalyzingDuplicates: Bool = false
-    @State private var duplicatesStatus: String = ""
+    @State private var similarityClusters: [ClusterAnalysisService.SimilarityCluster] = []
+    @State private var isAnalyzingClusters: Bool = false
+    @State private var clustersStatus: String = ""
 
     // Cluster-level AI explanation state
     @State private var clusterAIText: [UUID: String] = [:]
@@ -79,7 +81,7 @@ struct ContentView: View {
     @State private var clusterSuggestions: [UUID: [ClusterSuggestion]] = [:]
 
     private let indexer = IndexingService()
-    private let duplicateAnalyzer = DuplicateAnalysisService()
+    private let clusterAnalyzer = ClusterAnalysisService()
 
     private enum AIRouteChoice {
         case local
@@ -95,11 +97,11 @@ struct ContentView: View {
                 ActionBar(
                     isProcessing: processing.isProcessing,
                     hasDocuments: !caseDocuments.isEmpty,
-                    isAnalyzingDuplicates: isAnalyzingDuplicates,
+                    isAnalyzingClusters: isAnalyzingClusters,
                     onRun: { startProcessing() },
                     onCancel: { cancelProcessing() },
                     onReset: { processing.reset() },
-                    onAnalyze: { analyzeDuplicates() },
+                    onAnalyze: { analyzeClusters() },
                     onIndexOptions: {
                         // No-op; options live in toolbar menu for now.
                     }
@@ -112,10 +114,10 @@ struct ContentView: View {
                 }
                 DashboardView()
                 DocumentListView()
-                DuplicatesPanel(
-                    clusters: duplicateClusters,
-                    isAnalyzing: isAnalyzingDuplicates,
-                    status: duplicatesStatus,
+                ClusterDetailView(
+                    clusters: similarityClusters,
+                    isAnalyzing: isAnalyzingClusters,
+                    status: clustersStatus,
                     clusterAIText: clusterAIText,
                     clusterAILoading: clusterAILoading,
                     expandedClusters: expandedClusters,
@@ -211,12 +213,12 @@ struct ContentView: View {
                 .disabled(processing.isProcessing)
 
                 Button {
-                    analyzeDuplicates()
+                    analyzeClusters()
                 } label: {
-                    Label("Analyze Duplicates", systemImage: "square.stack.3d.up")
+                    Label("Analyze Clusters", systemImage: "square.stack.3d.up")
                         .labelStyle(.iconOnly)
                 }
-                .disabled(processing.isProcessing || caseDocuments.isEmpty || isAnalyzingDuplicates)
+                .disabled(processing.isProcessing || caseDocuments.isEmpty || isAnalyzingClusters)
 
                 Menu {
                     Toggle("Skip cached files", isOn: $skipCachedOnRun)
@@ -264,6 +266,13 @@ struct ContentView: View {
                         .labelStyle(.iconOnly)
                 }
                 .disabled(processing.isProcessing)
+
+                Button {
+                    openWindow(id: "execution-trace")
+                } label: {
+                    Label("Execution Trace", systemImage: "waveform.path.ecg")
+                        .labelStyle(.iconOnly)
+                }
             }
         }
         .onDisappear {
@@ -360,6 +369,7 @@ struct ContentView: View {
         indexedUpdateCount = 0
         processing.status = force ? "Starting (force re-index)…" : "Starting indexing…"
         processing.progress = 0
+        processingStartedAt = Date()
         traceStore.log(TraceEvent(stage: "UI", message: "User started indexing", metadata: [
             "documents": "\(urlsToIndex.count)",
             "skipCached": "\(skipCachedOnRun)",
@@ -409,6 +419,7 @@ struct ContentView: View {
             }
 
             if Task.isCancelled {
+                let duration = processingStartedAt.map { Date().timeIntervalSince($0) * 1000 }
                 await MainActor.run {
                     processing.status = "Cancelled."
                     processing.isProcessing = false
@@ -417,15 +428,16 @@ struct ContentView: View {
                     processing.currentExtractedTextChars = nil
                     processing.currentOCRTextChars = nil
                 }
-                traceStore.log(TraceEvent(level: .warning, stage: "UI", message: "Indexing cancelled by user"))
+                traceStore.log(TraceEvent(level: .warning, stage: "UI", message: "Indexing cancelled by user", durationMs: duration))
+                processingStartedAt = nil
                 return
             }
 
             // Sync derived artifacts (meta/text/ocr/thumb/dhash) back into SwiftData.
             await syncDerivedArtifactsIntoSwiftData()
 
-            // Optional: refresh duplicate clusters after indexing.
-            await analyzeDuplicates(refreshOnly: true)
+            // Optional: refresh similarity clusters after indexing.
+            await analyzeClusters(refreshOnly: true)
 
             await MainActor.run {
                 try? modelContext.save()
@@ -440,7 +452,9 @@ struct ContentView: View {
                 processing.currentExtractedTextChars = nil
                 processing.currentOCRTextChars = nil
             }
-            traceStore.log(TraceEvent(stage: "UI", message: "Indexing completed"))
+            let duration = processingStartedAt.map { Date().timeIntervalSince($0) * 1000 }
+            traceStore.log(TraceEvent(stage: "UI", message: "Indexing completed", durationMs: duration))
+            processingStartedAt = nil
         }
     }
 
@@ -562,12 +576,12 @@ struct ContentView: View {
         return root
     }
 
-    private func analyzeDuplicates() {
+    private func analyzeClusters() {
         processingTask?.cancel() // don't cancel indexing; just ensure we don't reuse this task slot
-        Task { await analyzeDuplicates(refreshOnly: false) }
+        Task { await analyzeClusters(refreshOnly: false) }
     }
 
-    private func analyzeDuplicates(refreshOnly: Bool) async {
+    private func analyzeClusters(refreshOnly: Bool) async {
         if !refreshOnly {
             await MainActor.run {
                 isAnalyzingDuplicates = true
@@ -576,15 +590,15 @@ struct ContentView: View {
             }
         } else {
             await MainActor.run {
-                duplicatesStatus = "Refreshing duplicate clusters…"
+                clustersStatus = "Refreshing clusters…"
             }
         }
 
         guard selectedCaseID != nil else {
             await MainActor.run {
-                isAnalyzingDuplicates = false
-                duplicatesStatus = "Select a case first."
-                duplicateClusters = []
+                isAnalyzingClusters = false
+                clustersStatus = "Select a case first."
+                similarityClusters = []
             }
             return
         }
@@ -600,7 +614,7 @@ struct ContentView: View {
                 ocrTextPath: d.ocrTextPath
             )
         }
-        let clusters = await duplicateAnalyzer.analyze(documents: docs, nearThreshold: 10)
+        let clusters = await clusterAnalyzer.analyze(documents: docs, nearThreshold: 10)
 
         if let caseID = selectedCaseID {
             let suggestions = await clusterReconstructor.reconstruct(
@@ -615,12 +629,12 @@ struct ContentView: View {
         }
 
         await MainActor.run {
-            duplicateClusters = clusters
-            isAnalyzingDuplicates = false
+            similarityClusters = clusters
+            isAnalyzingClusters = false
             if clusters.isEmpty {
-                duplicatesStatus = "No duplicate clusters found."
+                clustersStatus = "No clusters found."
             } else {
-                duplicatesStatus = "Found \(clusters.count) cluster(s)."
+                clustersStatus = "Found \(clusters.count) cluster(s)."
             }
         }
     }
@@ -706,19 +720,13 @@ struct ContentView: View {
         else { showFullClusterDetail.insert(id) }
     }
 
-    private func explainCluster(_ cluster: DuplicateAnalysisService.DuplicateCluster) async {
-        if !(ai.isLocalEnabled || ai.isCloudEnabled) {
-            await MainActor.run {
-                requireAIRouteThenRun { await explainCluster(cluster) }
-            }
-            return
-        }
-
+    private func explainCluster(_ cluster: ClusterAnalysisService.SimilarityCluster) async {
         if clusterAILoading.contains(cluster.id) { return }
         clusterAILoading.insert(cluster.id)
         defer { clusterAILoading.remove(cluster.id) }
 
-        let evidence = cluster.members.map {
+        let members = cluster.exactDuplicates + cluster.variants
+        let evidence = members.map {
             """
             file=\($0.fileName)
             sha=\($0.sha256 ?? "")
@@ -729,9 +737,13 @@ struct ContentView: View {
             """
         }.joined(separator: "\n\n")
 
+        let reasons = cluster.reasons.map { "\($0.label): \($0.detail) (\(Int($0.confidence * 100))%)" }
+            .joined(separator: "; ")
+
         let prompt = """
         Cluster: \(cluster.title)
-        Kind: \(cluster.kind.rawValue)
+        Confidence: \(Int(cluster.confidence * 100))%
+        Reasons: \(reasons)
 
         Evidence:
         \(evidence)
@@ -799,7 +811,7 @@ private extension View {
 private struct ActionBar: View {
     let isProcessing: Bool
     let hasDocuments: Bool
-    let isAnalyzingDuplicates: Bool
+    let isAnalyzingClusters: Bool
     let onRun: () -> Void
     let onCancel: () -> Void
     let onReset: () -> Void
@@ -818,7 +830,7 @@ private struct ActionBar: View {
                 .disabled(isProcessing)
 
             ActionButton(title: "Analyze", systemImage: "square.stack.3d.up") { onAnalyze() }
-                .disabled(isProcessing || !hasDocuments || isAnalyzingDuplicates)
+                .disabled(isProcessing || !hasDocuments || isAnalyzingClusters)
 
             Spacer()
         }
