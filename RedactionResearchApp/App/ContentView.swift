@@ -46,7 +46,10 @@ struct ContentView: View {
     }
 
     @State private var showingEnableCloudPrompt: Bool = false
-    @State private var pendingEnableCloud: Bool = false
+    @State private var showingEnableLocalPrompt: Bool = false
+    @State private var showingRoutePicker: Bool = false
+    @State private var pendingRouteChoice: AIRouteChoice? = nil
+    @State private var pendingAIRun: (() async -> Void)? = nil
     @State private var aiStatus: String = ""
 
     @StateObject private var processing = ProcessingStatus()
@@ -73,6 +76,11 @@ struct ContentView: View {
 
     private let indexer = IndexingService()
     private let duplicateAnalyzer = DuplicateAnalysisService()
+
+    private enum AIRouteChoice {
+        case local
+        case cloud
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -128,13 +136,36 @@ struct ContentView: View {
             }
             .alert("Enable Cloud AI?", isPresented: $showingEnableCloudPrompt) {
                 Button("Enable", role: .destructive) {
+                    ai.markConsent(forLocal: false)
                     ai.setCloudAIEnabled(true)
+                    aiStatus = "Cloud AI enabled"
+                    runPendingAIRun()
                 }
                 Button("Cancel", role: .cancel) {
-                    // Leave disabled
+                    clearPendingAIRun()
                 }
             } message: {
-                Text("Cloud AI sends text off-device. For legal research, enable only when you intend to use a cloud model. You can disable it any time in Settings.")
+                Text("Cloud AI sends text and prompts to a configured provider. Only enable if you are comfortable sending derived text off-device.")
+            }
+            .alert("Enable Local AI?", isPresented: $showingEnableLocalPrompt) {
+                Button("Enable", role: .destructive) {
+                    ai.markConsent(forLocal: true)
+                    ai.setLocalAIEnabled(true)
+                    aiStatus = "Local AI enabled"
+                    runPendingAIRun()
+                }
+                Button("Cancel", role: .cancel) {
+                    clearPendingAIRun()
+                }
+            } message: {
+                Text("Local AI runs on-device. Inputs stay on this Mac and are not sent to cloud providers.")
+            }
+            .confirmationDialog("Choose how to route AI tasks", isPresented: $showingRoutePicker, titleVisibility: .visible) {
+                Button("Enable Local AI (on-device)") { handleRouteChoice(.local) }
+                Button("Enable Cloud AI (off-device)") { handleRouteChoice(.cloud) }
+                Button("Cancel", role: .cancel) { clearPendingAIRun() }
+            } message: {
+                Text("Select whether to keep AI processing local or allow cloud routing before running this task.")
             }
             .alert("No changes detected", isPresented: $showingNoChangesPrompt) {
                 Button("Re-index anyway", role: .destructive) {
@@ -195,9 +226,7 @@ struct ContentView: View {
                 Divider()
 
                 Button {
-                    // Local is safe by default; allow toggling.
-                    ai.setLocalAIEnabled(true)
-                    aiStatus = "Local AI enabled"
+                    handleRouteChoice(.local)
                 } label: {
                     Label("Enable Local AI", systemImage: "bolt.horizontal.circle")
                         .labelStyle(.iconOnly)
@@ -212,11 +241,11 @@ struct ContentView: View {
                 }
 
                 Button {
-                    if ai.shouldPromptToEnableCloudAI() {
-                        showingEnableCloudPrompt = true
-                    } else {
+                    if ai.isCloudEnabled {
                         ai.setCloudAIEnabled(false)
                         aiStatus = "Cloud AI disabled"
+                    } else {
+                        handleRouteChoice(.cloud)
                     }
                 } label: {
                     Label("Cloud AI…", systemImage: "icloud")
@@ -239,6 +268,51 @@ struct ContentView: View {
 
     private func startProcessing() {
         startProcessing(urlsOverride: nil, forceOverride: nil)
+    }
+
+    @MainActor
+    private func requireAIRouteThenRun(_ action: @escaping () async -> Void) {
+        if ai.isLocalEnabled || ai.isCloudEnabled {
+            Task { await action() }
+            return
+        }
+        pendingAIRun = action
+        showingRoutePicker = true
+    }
+
+    private func handleRouteChoice(_ route: AIRouteChoice) {
+        pendingRouteChoice = route
+        switch route {
+        case .local:
+            if ai.hasLocalConsent {
+                ai.setLocalAIEnabled(true)
+                aiStatus = "Local AI enabled"
+                runPendingAIRun()
+            } else {
+                showingEnableLocalPrompt = true
+            }
+        case .cloud:
+            if ai.hasCloudConsent {
+                ai.setCloudAIEnabled(true)
+                aiStatus = "Cloud AI enabled"
+                runPendingAIRun()
+            } else {
+                showingEnableCloudPrompt = true
+            }
+        }
+    }
+
+    private func runPendingAIRun() {
+        let action = pendingAIRun
+        pendingAIRun = nil
+        pendingRouteChoice = nil
+        Task { await action?() }
+    }
+
+    private func clearPendingAIRun() {
+        pendingAIRun = nil
+        pendingRouteChoice = nil
+        showingRoutePicker = false
     }
 
     private func startProcessing(urlsOverride: [URL]?, forceOverride: Bool?) {
@@ -532,6 +606,13 @@ struct ContentView: View {
     }
 
     private func runAIRedactionInferenceForCurrentFile() async {
+        if !(ai.isLocalEnabled || ai.isCloudEnabled) {
+            await MainActor.run {
+                requireAIRouteThenRun { await runAIRedactionInferenceForCurrentFile() }
+            }
+            return
+        }
+
         // Prefer the currently analyzed file; otherwise fall back to the newest document.
         let currentPath = processing.currentFilePath
         let doc: DocumentModel?
@@ -606,6 +687,13 @@ struct ContentView: View {
     }
 
     private func explainCluster(_ cluster: DuplicateAnalysisService.DuplicateCluster) async {
+        if !(ai.isLocalEnabled || ai.isCloudEnabled) {
+            await MainActor.run {
+                requireAIRouteThenRun { await explainCluster(cluster) }
+            }
+            return
+        }
+
         if clusterAILoading.contains(cluster.id) { return }
         clusterAILoading.insert(cluster.id)
         defer { clusterAILoading.remove(cluster.id) }
