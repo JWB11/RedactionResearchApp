@@ -61,9 +61,9 @@ struct ContentView: View {
 
     @State private var indexedUpdateCount: Int = 0
 
-    @State private var duplicateClusters: [DuplicateAnalysisService.DuplicateCluster] = []
-    @State private var isAnalyzingDuplicates: Bool = false
-    @State private var duplicatesStatus: String = ""
+    @State private var similarityClusters: [ClusterAnalysisService.SimilarityCluster] = []
+    @State private var isAnalyzingClusters: Bool = false
+    @State private var clustersStatus: String = ""
 
     // Cluster-level AI explanation state
     @State private var clusterAIText: [UUID: String] = [:]
@@ -72,7 +72,7 @@ struct ContentView: View {
     @State private var showFullClusterDetail: Set<UUID> = []
 
     private let indexer = IndexingService()
-    private let duplicateAnalyzer = DuplicateAnalysisService()
+    private let clusterAnalyzer = ClusterAnalysisService()
 
     var body: some View {
         NavigationSplitView {
@@ -83,11 +83,11 @@ struct ContentView: View {
                 ActionBar(
                     isProcessing: processing.isProcessing,
                     hasDocuments: !caseDocuments.isEmpty,
-                    isAnalyzingDuplicates: isAnalyzingDuplicates,
+                    isAnalyzingClusters: isAnalyzingClusters,
                     onRun: { startProcessing() },
                     onCancel: { cancelProcessing() },
                     onReset: { processing.reset() },
-                    onAnalyze: { analyzeDuplicates() },
+                    onAnalyze: { analyzeClusters() },
                     onIndexOptions: {
                         // No-op; options live in toolbar menu for now.
                     }
@@ -100,15 +100,15 @@ struct ContentView: View {
                 }
                 DashboardView()
                 DocumentListView()
-                DuplicatesPanel(
-                    clusters: duplicateClusters,
-                    isAnalyzing: isAnalyzingDuplicates,
-                    status: duplicatesStatus,
+                ClusterDetailView(
+                    clusters: similarityClusters,
+                    isAnalyzing: isAnalyzingClusters,
+                    status: clustersStatus,
                     clusterAIText: clusterAIText,
                     clusterAILoading: clusterAILoading,
                     expandedClusters: expandedClusters,
                     showFullClusterDetail: showFullClusterDetail,
-                    onAnalyze: { analyzeDuplicates() },
+                    onAnalyze: { analyzeClusters() },
                     onExplainCluster: { cluster in
                         Task { await explainCluster(cluster) }
                     },
@@ -175,12 +175,12 @@ struct ContentView: View {
                 .disabled(processing.isProcessing)
 
                 Button {
-                    analyzeDuplicates()
+                    analyzeClusters()
                 } label: {
-                    Label("Analyze Duplicates", systemImage: "square.stack.3d.up")
+                    Label("Analyze Clusters", systemImage: "square.stack.3d.up")
                         .labelStyle(.iconOnly)
                 }
-                .disabled(processing.isProcessing || caseDocuments.isEmpty || isAnalyzingDuplicates)
+                .disabled(processing.isProcessing || caseDocuments.isEmpty || isAnalyzingClusters)
 
                 Menu {
                     Toggle("Skip cached files", isOn: $skipCachedOnRun)
@@ -343,8 +343,8 @@ struct ContentView: View {
             // Sync derived artifacts (meta/text/ocr/thumb/dhash) back into SwiftData.
             await syncDerivedArtifactsIntoSwiftData()
 
-            // Optional: refresh duplicate clusters after indexing.
-            await analyzeDuplicates(refreshOnly: true)
+            // Optional: refresh similarity clusters after indexing.
+            await analyzeClusters(refreshOnly: true)
 
             await MainActor.run {
                 processing.status = "Done."
@@ -481,28 +481,28 @@ struct ContentView: View {
         return root
     }
 
-    private func analyzeDuplicates() {
+    private func analyzeClusters() {
         processingTask?.cancel() // don't cancel indexing; just ensure we don't reuse this task slot
-        Task { await analyzeDuplicates(refreshOnly: false) }
+        Task { await analyzeClusters(refreshOnly: false) }
     }
 
-    private func analyzeDuplicates(refreshOnly: Bool) async {
+    private func analyzeClusters(refreshOnly: Bool) async {
         if !refreshOnly {
             await MainActor.run {
-                isAnalyzingDuplicates = true
-                duplicatesStatus = "Analyzing duplicates…"
+                isAnalyzingClusters = true
+                clustersStatus = "Analyzing clusters…"
             }
         } else {
             await MainActor.run {
-                duplicatesStatus = "Refreshing duplicate clusters…"
+                clustersStatus = "Refreshing clusters…"
             }
         }
 
         guard selectedCaseID != nil else {
             await MainActor.run {
-                isAnalyzingDuplicates = false
-                duplicatesStatus = "Select a case first."
-                duplicateClusters = []
+                isAnalyzingClusters = false
+                clustersStatus = "Select a case first."
+                similarityClusters = []
             }
             return
         }
@@ -518,15 +518,15 @@ struct ContentView: View {
                 ocrTextPath: d.ocrTextPath
             )
         }
-        let clusters = await duplicateAnalyzer.analyze(documents: docs, nearThreshold: 10)
+        let clusters = await clusterAnalyzer.analyze(documents: docs, nearThreshold: 10)
 
         await MainActor.run {
-            duplicateClusters = clusters
-            isAnalyzingDuplicates = false
+            similarityClusters = clusters
+            isAnalyzingClusters = false
             if clusters.isEmpty {
-                duplicatesStatus = "No duplicate clusters found."
+                clustersStatus = "No clusters found."
             } else {
-                duplicatesStatus = "Found \(clusters.count) cluster(s)."
+                clustersStatus = "Found \(clusters.count) cluster(s)."
             }
         }
     }
@@ -605,12 +605,13 @@ struct ContentView: View {
         else { showFullClusterDetail.insert(id) }
     }
 
-    private func explainCluster(_ cluster: DuplicateAnalysisService.DuplicateCluster) async {
+    private func explainCluster(_ cluster: ClusterAnalysisService.SimilarityCluster) async {
         if clusterAILoading.contains(cluster.id) { return }
         clusterAILoading.insert(cluster.id)
         defer { clusterAILoading.remove(cluster.id) }
 
-        let evidence = cluster.members.map {
+        let members = cluster.exactDuplicates + cluster.variants
+        let evidence = members.map {
             """
             file=\($0.fileName)
             sha=\($0.sha256 ?? "")
@@ -621,9 +622,13 @@ struct ContentView: View {
             """
         }.joined(separator: "\n\n")
 
+        let reasons = cluster.reasons.map { "\($0.label): \($0.detail) (\(Int($0.confidence * 100))%)" }
+            .joined(separator: "; ")
+
         let prompt = """
         Cluster: \(cluster.title)
-        Kind: \(cluster.kind.rawValue)
+        Confidence: \(Int(cluster.confidence * 100))%
+        Reasons: \(reasons)
 
         Evidence:
         \(evidence)
@@ -691,7 +696,7 @@ private extension View {
 private struct ActionBar: View {
     let isProcessing: Bool
     let hasDocuments: Bool
-    let isAnalyzingDuplicates: Bool
+    let isAnalyzingClusters: Bool
     let onRun: () -> Void
     let onCancel: () -> Void
     let onReset: () -> Void
@@ -710,7 +715,7 @@ private struct ActionBar: View {
                 .disabled(isProcessing)
 
             ActionButton(title: "Analyze", systemImage: "square.stack.3d.up") { onAnalyze() }
-                .disabled(isProcessing || !hasDocuments || isAnalyzingDuplicates)
+                .disabled(isProcessing || !hasDocuments || isAnalyzingClusters)
 
             Spacer()
         }
@@ -737,173 +742,3 @@ private struct ActionButton: View {
     }
 }
 
-private struct DuplicatesPanel: View {
-    let clusters: [DuplicateAnalysisService.DuplicateCluster]
-    let isAnalyzing: Bool
-    let status: String
-    let clusterAIText: [UUID: String]
-    let clusterAILoading: Set<UUID>
-    let expandedClusters: Set<UUID>
-    let showFullClusterDetail: Set<UUID>
-    let onAnalyze: () -> Void
-    let onExplainCluster: (DuplicateAnalysisService.DuplicateCluster) -> Void
-    let onToggleExpand: (UUID) -> Void
-    let onToggleFull: (UUID) -> Void
-    let onOpenOriginal: (String) -> Void
-    let onOpenDerived: (String) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label("Duplicates", systemImage: "square.stack.3d.up")
-                    .font(.headline)
-                Spacer()
-                Button {
-                    onAnalyze()
-                } label: {
-                    Text(isAnalyzing ? "Analyzing…" : "Analyze")
-                }
-                .disabled(isAnalyzing)
-            }
-
-            if clusters.isEmpty {
-                ContentUnavailableView(
-                    "No clusters",
-                    systemImage: "square.stack.3d.up.slash",
-                    description: Text("Run Analyze after indexing to group exact and near-duplicate documents."))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(clusters) { cluster in
-                            ClusterCard(
-                                cluster: cluster,
-                                aiText: clusterAIText[cluster.id],
-                                isLoadingAI: clusterAILoading.contains(cluster.id),
-                                isExpanded: expandedClusters.contains(cluster.id),
-                                showFullDetail: showFullClusterDetail.contains(cluster.id),
-                                onExplain: { onExplainCluster(cluster) },
-                                onToggleExpand: { onToggleExpand(cluster.id) },
-                                onToggleFull: { onToggleFull(cluster.id) },
-                                onOpenOriginal: onOpenOriginal,
-                                onOpenDerived: onOpenDerived
-                            )
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxHeight: 260)
-            }
-            Text(status)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard(cornerRadius: 18)
-    }
-}
-
-private struct ClusterCard: View {
-    let cluster: DuplicateAnalysisService.DuplicateCluster
-    let aiText: String?
-    let isLoadingAI: Bool
-    let isExpanded: Bool
-    let showFullDetail: Bool
-    let onExplain: () -> Void
-    let onToggleExpand: () -> Void
-    let onToggleFull: () -> Void
-    let onOpenOriginal: (String) -> Void
-    let onOpenDerived: (String) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(cluster.title)
-                    .font(.headline)
-                Spacer()
-                Button(isLoadingAI ? "Explaining…" : "Explain") { onExplain() }
-                    .disabled(isLoadingAI)
-                Button {
-                    onToggleExpand()
-                } label: {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .padding(6)
-                }
-                .buttonStyle(.plain)
-            }
-
-            if !cluster.rationale.isEmpty {
-                Text(cluster.rationale)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            ForEach(cluster.members) { m in
-                HStack(spacing: 10) {
-                    if m.isBestCandidate {
-                        Text("Best")
-                            .font(.caption2)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(.green.opacity(0.18))
-                            .clipShape(Capsule())
-                    }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(m.fileName)
-                            .font(.callout)
-                        Text("score \(m.completenessScore) • text \(m.extractedTextChars) • ocr \(m.ocrTextChars)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-
-                    Spacer()
-
-                    Button("Open") { onOpenOriginal(m.localPath) }
-                        .buttonStyle(.link)
-                    if let derived = derivedFolderPath(from: m) {
-                        Button("Derived") { onOpenDerived(derived) }
-                            .buttonStyle(.link)
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-
-            if isExpanded {
-                let text = aiText ?? "No AI explanation yet."
-                let short = String(text.prefix(500))
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(showFullDetail ? text : short)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .padding(8)
-                        .background(.gray.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-                    Button(showFullDetail ? "Show less" : "More detail") {
-                        onToggleFull()
-                    }
-                    .buttonStyle(.link)
-                }
-            }
-        }
-        .glassCard(cornerRadius: 18)
-    }
-
-    private func derivedFolderPath(from m: DuplicateAnalysisService.ClusterMember) -> String? {
-        guard let sha = m.sha256, !sha.isEmpty else { return nil }
-        do {
-            let appSupport = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
-            return appSupport
-                .appendingPathComponent("RedactionResearchApp", isDirectory: true)
-                .appendingPathComponent("Derived", isDirectory: true)
-                .appendingPathComponent(sha, isDirectory: true)
-                .path
-        } catch {
-            return nil
-        }
-    }
-}
