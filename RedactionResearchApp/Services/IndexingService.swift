@@ -184,9 +184,19 @@ actor IndexingService {
                 actor AsyncSemaphore {
                     private var permits: Int
                     init(_ permits: Int) { self.permits = max(1, permits) }
-                    func acquire() async {
+                    func acquire() async throws {
+                        let startTime = Date()
+                        let timeoutSeconds: TimeInterval = 300 // 5 minutes timeout
                         while permits == 0 {
-                            await Task.yield()
+                            // Check for timeout to prevent infinite deadlock
+                            if Date().timeIntervalSince(startTime) > timeoutSeconds {
+                                throw NSError(
+                                    domain: "IndexingService",
+                                    code: -1,
+                                    userInfo: [NSLocalizedDescriptionKey: "Semaphore acquire timeout after \(timeoutSeconds) seconds"]
+                                )
+                            }
+                            try await Task.sleep(nanoseconds: 10_000_000) // 10ms
                         }
                         permits -= 1
                     }
@@ -401,7 +411,13 @@ actor IndexingService {
                     await withTaskGroup(of: Void.self) { group in
                         for (i, url) in expanded.enumerated() {
                             group.addTask(priority: .utility) {
-                                await semaphore.acquire()
+                                do {
+                                    try await semaphore.acquire()
+                                } catch {
+                                    tlog(.error, "Semaphore", "Acquire timeout", metadata: ["error": error.localizedDescription])
+                                    await stats.incErrors()
+                                    return
+                                }
                                 defer { Task { await semaphore.release() } }
 
                                 let displayName = url.lastPathComponent
@@ -529,7 +545,12 @@ actor IndexingService {
                                             if extractedCountForOCR < ocrTextThresholdChars {
                                                 await sink.yield(.init(completed: i, total: expanded.count, message: "OCR \(displayName)…", currentPath: url.path, sha256: sha, thumbnailPath: thumbPath, extractedTextChars: extractedCountForOCR))
                                                 await stats.incOCR()
-                                                await ocrSemaphore.acquire()
+                                                do {
+                                                    try await ocrSemaphore.acquire()
+                                                } catch {
+                                                    tlog(.error, "OCR Semaphore", "Acquire timeout", filePath: url.path, metadata: ["error": error.localizedDescription])
+                                                    continue
+                                                }
                                                 defer { Task { await ocrSemaphore.release() } }
                                                 if let ocr = try await Self.ocrText(from: thumb) {
                                                     await stats.incTextExtracted()
@@ -591,7 +612,12 @@ actor IndexingService {
                                             #if canImport(Vision)
                                             await sink.yield(.init(completed: i, total: expanded.count, message: "OCR \(displayName)…", currentPath: url.path, sha256: sha, thumbnailPath: thumbPath))
                                             await stats.incOCR()
-                                            await ocrSemaphore.acquire()
+                                            do {
+                                                try await ocrSemaphore.acquire()
+                                            } catch {
+                                                tlog(.error, "OCR Semaphore", "Acquire timeout", filePath: url.path, metadata: ["error": error.localizedDescription])
+                                                continue
+                                            }
                                             defer { Task { await ocrSemaphore.release() } }
                                             if let ocr = try await Self.ocrText(from: thumb) {
                                                 await stats.incTextExtracted()
@@ -820,12 +846,17 @@ private extension IndexingService {
 
     static func extractText(from url: URL, type: UTType?) throws -> String? {
         // Safety: cap read to avoid huge memory use.
+        // Use FileHandle to read only the needed portion without loading entire file.
         let maxBytes = 2_000_000
-        let data = try Data(contentsOf: url, options: [.mappedIfSafe])
-        let slice = data.prefix(maxBytes)
+        let fh = try FileHandle(forReadingFrom: url)
+        defer { try? fh.close() }
+
+        let data = fh.readData(ofLength: maxBytes)
+        guard !data.isEmpty else { return nil }
+
         // Try UTF-8 first; fall back to ISO Latin 1.
-        if let s = String(data: slice, encoding: .utf8) { return s }
-        if let s = String(data: slice, encoding: .isoLatin1) { return s }
+        if let s = String(data: data, encoding: .utf8) { return s }
+        if let s = String(data: data, encoding: .isoLatin1) { return s }
         return nil
     }
 

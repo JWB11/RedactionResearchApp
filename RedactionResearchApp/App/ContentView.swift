@@ -720,10 +720,29 @@ struct ContentView: View {
         else { showFullClusterDetail.insert(id) }
     }
 
-    private func explainCluster(_ cluster: ClusterAnalysisService.SimilarityCluster) async {
-        if clusterAILoading.contains(cluster.id) { return }
-        clusterAILoading.insert(cluster.id)
-        defer { clusterAILoading.remove(cluster.id) }
+    private func explainCluster(_ cluster: DuplicateAnalysisService.DuplicateCluster) async {
+        if !(ai.isLocalEnabled || ai.isCloudEnabled) {
+            await MainActor.run {
+                requireAIRouteThenRun { await explainCluster(cluster) }
+            }
+            return
+        }
+
+        // Atomic check-and-set to prevent race condition
+        let shouldProceed = await MainActor.run {
+            if clusterAILoading.contains(cluster.id) {
+                return false
+            }
+            clusterAILoading.insert(cluster.id)
+            return true
+        }
+
+        guard shouldProceed else { return }
+        defer {
+            Task { @MainActor in
+                clusterAILoading.remove(cluster.id)
+            }
+        }
 
         let members = cluster.exactDuplicates + cluster.variants
         let evidence = members.map {

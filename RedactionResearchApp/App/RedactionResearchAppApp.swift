@@ -17,20 +17,37 @@ struct RedactionResearchAppApp: App {
     private let container: ModelContainer
 
     @StateObject private var traceStore: TraceStore
+    @State private var initializationError: String?
 
     init() {
         do {
-            container = try ModelContainer(for: [CaseModel.self, DocumentModel.self, AuditEventModel.self])
+            let container = try ModelContainer(for: CaseModel.self, DocumentModel.self, AuditEventModel.self)
+            _modelContainer = State(initialValue: container)
+            _traceStore = StateObject(wrappedValue: TraceStore(container: container))
+            _initializationError = State(initialValue: nil)
         } catch {
-            fatalError("Failed to set up model container: \(error)")
+            // Create a fallback in-memory container to prevent crash
+            let schema = Schema([CaseModel.self, DocumentModel.self, AuditEventModel.self])
+            let config = ModelConfiguration(isStoredInMemoryOnly: true)
+            let container = try! ModelContainer(for: schema, configurations: config)
+            _modelContainer = State(initialValue: container)
+            _traceStore = StateObject(wrappedValue: TraceStore(container: container))
+            _initializationError = State(initialValue: "Failed to initialize data store: \(error.localizedDescription). Running in memory-only mode. Data will not be persisted.")
         }
-        _traceStore = StateObject(wrappedValue: TraceStore(container: container))
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(traceStore)
+                .alert("Data Store Warning", isPresented: Binding(
+                    get: { initializationError != nil },
+                    set: { if !$0 { initializationError = nil } }
+                )) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(initializationError ?? "")
+                }
         }
         .modelContainer(for: [CaseModel.self, DocumentModel.self, ClusterModel.self])
 
@@ -114,20 +131,17 @@ final class TraceStore: ObservableObject {
 
     func clear() {
         let descriptor = FetchDescriptor<AuditEventModel>()
-        if let items = try? context.fetch(descriptor) {
+        do {
+            let items = try context.fetch(descriptor)
             for item in items {
                 context.delete(item)
             }
-            try? context.save()
-        }
-        events.removeAll()
-
-        let descriptor = FetchDescriptor<AuditEventModel>()
-        if let models = try? context.fetch(descriptor) {
-            for model in models {
-                context.delete(model)
-            }
-            try? context.save()
+            try context.save()
+            // Only clear in-memory array if database operations succeeded
+            events.removeAll()
+        } catch {
+            print("Failed to clear trace events: \(error)")
+            // Keep in-memory events intact if database operation failed
         }
     }
 
