@@ -311,14 +311,17 @@ struct DocumentListView: View {
             return documents.filter { $0.caseID == c.id }
         }()
 
+        // Use merging strategy to handle potential duplicate keys (keep first occurrence)
         let localToDocID: [String: DocumentModel.ID] = Dictionary(
-            uniqueKeysWithValues: caseDocs.map { ($0.localPath, $0.id) }
+            caseDocs.map { ($0.localPath, $0.id) },
+            uniquingKeysWith: { first, _ in first }
         )
         let shaToDocID: [String: DocumentModel.ID] = Dictionary(
-            uniqueKeysWithValues: caseDocs.compactMap { doc in
+            caseDocs.compactMap { doc -> (String, DocumentModel.ID)? in
                 guard let sha = doc.sha256, !sha.isEmpty else { return nil }
                 return (sha, doc.id)
-            }
+            },
+            uniquingKeysWith: { first, _ in first }
         )
 
         Task(priority: .utility) {

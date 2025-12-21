@@ -696,9 +696,21 @@ struct ContentView: View {
             return
         }
 
-        if clusterAILoading.contains(cluster.id) { return }
-        clusterAILoading.insert(cluster.id)
-        defer { clusterAILoading.remove(cluster.id) }
+        // Atomic check-and-set to prevent race condition
+        let shouldProceed = await MainActor.run {
+            if clusterAILoading.contains(cluster.id) {
+                return false
+            }
+            clusterAILoading.insert(cluster.id)
+            return true
+        }
+
+        guard shouldProceed else { return }
+        defer {
+            Task { @MainActor in
+                clusterAILoading.remove(cluster.id)
+            }
+        }
 
         let evidence = cluster.members.map {
             """
