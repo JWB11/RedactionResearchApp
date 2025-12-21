@@ -10,11 +10,15 @@ final class AIService: ObservableObject {
 
     // User consent (off by default)
     @AppStorage("cloudAIEnabled") private var cloudAIEnabled: Bool = false
-    @AppStorage("localAIEnabled") private var localAIEnabled: Bool = true
+    @AppStorage("localAIEnabled") private var localAIEnabled: Bool = false
+    @AppStorage("cloudAIConsented") private var cloudAIConsented: Bool = false
+    @AppStorage("localAIConsented") private var localAIConsented: Bool = false
 
     // Read-only accessors for UI / services (do not mutate storage directly)
     var isCloudEnabled: Bool { cloudAIEnabled }
     var isLocalEnabled: Bool { localAIEnabled }
+    var hasCloudConsent: Bool { cloudAIConsented }
+    var hasLocalConsent: Bool { localAIConsented }
 
     // Optional trace hook (Execution Trace window)
     // Inject from ContentView or App entry if desired
@@ -158,12 +162,23 @@ final class AIService: ObservableObject {
 
     func shouldPromptToEnableCloudAI() -> Bool { !cloudAIEnabled }
 
+    func markConsent(forLocal: Bool) {
+        objectWillChange.send()
+        if forLocal {
+            localAIConsented = true
+        } else {
+            cloudAIConsented = true
+        }
+    }
+
     func setCloudAIEnabled(_ enabled: Bool) {
+        objectWillChange.send()
         cloudAIEnabled = enabled
         trace?(TraceEvent(stage: "AI", message: enabled ? "Cloud AI enabled" : "Cloud AI disabled", aiMetadata: ["capability": "settings", "cloud": enabled ? "on" : "off"]))
     }
 
     func setLocalAIEnabled(_ enabled: Bool) {
+        objectWillChange.send()
         localAIEnabled = enabled
         trace?(TraceEvent(stage: "AI", message: enabled ? "Local AI enabled" : "Local AI disabled", aiMetadata: ["capability": "settings", "local": enabled ? "on" : "off"]))
     }
@@ -176,7 +191,10 @@ final class AIService: ObservableObject {
             trace?(TraceEvent(stage: "AI", message: "Summarize using local runner", metadata: ["maxTokens": "\(req.maxTokens)"], aiMetadata: ["capability": Capability.summarize.rawValue, "provenance": Provenance.localOnDevice.rawValue]))
             let system = "You are a careful legal research assistant. Summarize concisely and preserve key dates, parties, and docket identifiers."
             let user = "Audience: \(req.audience ?? "legal analyst")\n\nText:\n\(req.text)"
-            return try await localRunner.generate(system: system, user: user, maxTokens: req.maxTokens)
+            let prompt = system + "\n" + user
+            let out = try await localRunner.generate(system: system, user: user, maxTokens: req.maxTokens)
+            audit(capability: .summarize, modelID: "local-runner", prompt: prompt, input: req.text, output: out, provenance: .localOnDevice)
+            return out
         }
 
         // Deterministic fallback: extract top lines and simple key fields.
@@ -192,7 +210,9 @@ final class AIService: ObservableObject {
             out.append("Key signals: " + signals.joined(separator: " • "))
         }
         out.append(String(head))
-        return out.joined(separator: "\n")
+        let rendered = out.joined(separator: "\n")
+        audit(capability: .summarize, modelID: "local-heuristic-v1", prompt: "local_heuristic_summarize", input: req.text, output: rendered, provenance: .localOnDevice)
+        return rendered
     }
 
     private func summarizeCloud(_ req: SummarizeRequest) async throws -> String {
@@ -201,7 +221,10 @@ final class AIService: ObservableObject {
             trace?(TraceEvent(stage: "AI", message: "Summarize using cloud runner", metadata: ["maxTokens": "\(req.maxTokens)"], aiMetadata: ["capability": Capability.summarize.rawValue, "provenance": Provenance.cloud.rawValue]))
             let system = "You are a careful legal research assistant. Summarize concisely and preserve key dates, parties, and docket identifiers."
             let user = "Audience: \(req.audience ?? "legal analyst")\n\nText:\n\(req.text)"
-            return try await cloudRunner.generate(system: system, user: user, maxTokens: req.maxTokens)
+            let prompt = system + "\n" + user
+            let out = try await cloudRunner.generate(system: system, user: user, maxTokens: req.maxTokens)
+            audit(capability: .summarize, modelID: "cloud-runner", prompt: prompt, input: req.text, output: out, provenance: .cloud)
+            return out
         }
 
         // If no cloud runner is installed, fail clearly.
@@ -214,7 +237,10 @@ final class AIService: ObservableObject {
             trace?(TraceEvent(stage: "AI", message: "Redaction inference using local runner", aiMetadata: ["capability": Capability.redactInference.rawValue, "provenance": Provenance.localOnDevice.rawValue]))
             let system = "You analyze legal documents. You do NOT guess private info. You identify likely redactions and propose safe next steps. Output valid JSON only."
             let user = Self.buildRedactionPrompt(extracted: req.extractedText, ocr: req.ocrText, hints: req.contextHints)
-            return try await localRunner.generate(system: system, user: user, maxTokens: 900)
+            let prompt = system + "\n" + user
+            let out = try await localRunner.generate(system: system, user: user, maxTokens: 900)
+            audit(capability: .redactInference, modelID: "local-runner", prompt: prompt, input: req.extractedText + (req.ocrText ?? ""), output: out, provenance: .localOnDevice)
+            return out
         }
 
         // Deterministic heuristic inference: look for redaction markers and missing-field patterns.
@@ -247,7 +273,9 @@ final class AIService: ObservableObject {
             ]
         )
 
-        return try Self.prettyJSON(result)
+        let output = try Self.prettyJSON(result)
+        audit(capability: .redactInference, modelID: "local-heuristic-v1", prompt: "local_heuristic_redact_inference", input: req.extractedText + (req.ocrText ?? ""), output: output, provenance: .localOnDevice)
+        return output
     }
 
     private func redactCloud(_ req: RedactionInferenceRequest) async throws -> String {
@@ -255,7 +283,10 @@ final class AIService: ObservableObject {
             trace?(TraceEvent(stage: "AI", message: "Redaction inference using cloud runner", aiMetadata: ["capability": Capability.redactInference.rawValue, "provenance": Provenance.cloud.rawValue]))
             let system = "You analyze legal documents. You do NOT guess private info. You identify likely redactions and propose safe next steps. Output valid JSON only."
             let user = Self.buildRedactionPrompt(extracted: req.extractedText, ocr: req.ocrText, hints: req.contextHints)
-            return try await cloudRunner.generate(system: system, user: user, maxTokens: 900)
+            let prompt = system + "\n" + user
+            let out = try await cloudRunner.generate(system: system, user: user, maxTokens: 900)
+            audit(capability: .redactInference, modelID: "cloud-runner", prompt: prompt, input: req.extractedText + (req.ocrText ?? ""), output: out, provenance: .cloud)
+            return out
         }
         throw AIError.cloudNotConfigured
     }
@@ -265,19 +296,24 @@ final class AIService: ObservableObject {
             trace?(TraceEvent(stage: "AI", message: "Cluster explanation using local runner", aiMetadata: ["capability": Capability.clusterExplain.rawValue, "provenance": Provenance.localOnDevice.rawValue]))
             let system = "You explain duplicate clustering decisions for legal research. Be precise and cite the provided evidence."
             let user = "Explain why the best candidate was selected. Evidence:\n\(text)"
-            return try await localRunner.generate(system: system, user: user, maxTokens: 450)
+            let prompt = system + "\n" + user
+            let out = try await localRunner.generate(system: system, user: user, maxTokens: 450)
+            audit(capability: .clusterExplain, modelID: "local-runner", prompt: prompt, input: text, output: out, provenance: .localOnDevice)
+            return out
         }
 
         // Deterministic fallback: template explanation.
         let clean = Self.normalizeText(text)
         let signals = Self.extractSignals(from: clean)
         let sigLine = signals.isEmpty ? "" : "Signals: " + signals.joined(separator: " • ")
-        return ([
+        let rendered = ([
             "Cluster explanation (local heuristic)",
             sigLine,
             "The best candidate is selected by maximizing completeness signals (text chars + OCR chars + file size) and preferring higher coverage.",
-            "Verify by opening the derived artifacts (text.txt, ocr.txt, thumb.png) for the top-ranked file." 
+            "Verify by opening the derived artifacts (text.txt, ocr.txt, thumb.png) for the top-ranked file."
         ].filter { !$0.isEmpty }).joined(separator: "\n")
+        audit(capability: .clusterExplain, modelID: "local-heuristic-v1", prompt: "local_heuristic_cluster_explain", input: text, output: rendered, provenance: .localOnDevice)
+        return rendered
     }
 
     private func explainCloud(_ text: String) async throws -> String {
@@ -285,7 +321,10 @@ final class AIService: ObservableObject {
             trace?(TraceEvent(stage: "AI", message: "Cluster explanation using cloud runner", aiMetadata: ["capability": Capability.clusterExplain.rawValue, "provenance": Provenance.cloud.rawValue]))
             let system = "You explain duplicate clustering decisions for legal research. Be precise and cite the provided evidence."
             let user = "Explain why the best candidate was selected. Evidence:\n\(text)"
-            return try await cloudRunner.generate(system: system, user: user, maxTokens: 450)
+            let prompt = system + "\n" + user
+            let out = try await cloudRunner.generate(system: system, user: user, maxTokens: 450)
+            audit(capability: .clusterExplain, modelID: "cloud-runner", prompt: prompt, input: text, output: out, provenance: .cloud)
+            return out
         }
         throw AIError.cloudNotConfigured
     }
@@ -377,6 +416,21 @@ final class AIService: ObservableObject {
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try enc.encode(value)
         return String(decoding: data, as: UTF8.self)
+    }
+
+    // MARK: - Audit helpers
+
+    private func audit(capability: Capability, modelID: String, prompt: String, input: String, output: String, provenance: Provenance) {
+        let promptHash = HashUtils.sha256(for: prompt)
+        let inputHash = HashUtils.sha256(for: input)
+        let outputHash = HashUtils.sha256(for: output)
+        trace?(TraceEvent(stage: "AI", message: "Audit \(capability.rawValue)", metadata: [
+            "modelID": modelID,
+            "promptHash": promptHash,
+            "inputHash": inputHash,
+            "outputHash": outputHash,
+            "provenance": provenance.rawValue
+        ]))
     }
 }
 
