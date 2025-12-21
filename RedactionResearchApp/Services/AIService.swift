@@ -104,17 +104,17 @@ final class AIService: ObservableObject {
 
     /// Summarize text using on-device first. Cloud is used only if explicitly enabled.
     func summarize(_ req: SummarizeRequest) async throws -> AIResponse {
-        trace?(TraceEvent(stage: "AI", message: "Summarize requested", metadata: ["len": "\(req.text.count)"]))
+        trace?(TraceEvent(stage: "AI", message: "Summarize requested", metadata: ["len": "\(req.text.count)"], aiMetadata: ["capability": Capability.summarize.rawValue, "maxTokens": "\(req.maxTokens)", "audience": req.audience ?? ""]))
 
         if localAIEnabled {
             let text = try await summarizeLocal(req)
-            trace?(TraceEvent(stage: "AI", message: "Summarize completed (local)", metadata: ["chars": "\(text.count)"]))
+            trace?(TraceEvent(stage: "AI", message: "Summarize completed (local)", metadata: ["chars": "\(text.count)"], aiMetadata: ["capability": Capability.summarize.rawValue, "provenance": Provenance.localOnDevice.rawValue]))
             return AIResponse(text: text, provenance: .localOnDevice, warnings: [])
         }
 
         if cloudAIEnabled {
             let text = try await summarizeCloud(req)
-            trace?(TraceEvent(stage: "AI", message: "Summarize completed (cloud)", metadata: ["chars": "\(text.count)"]))
+            trace?(TraceEvent(stage: "AI", message: "Summarize completed (cloud)", metadata: ["chars": "\(text.count)"], aiMetadata: ["capability": Capability.summarize.rawValue, "provenance": Provenance.cloud.rawValue]))
             return AIResponse(text: text, provenance: .cloud, warnings: ["Cloud output—verify before use."])
         }
 
@@ -123,17 +123,17 @@ final class AIService: ObservableObject {
 
     /// Infer likely redacted content (suggestions only).
     func inferRedactions(_ req: RedactionInferenceRequest) async throws -> AIResponse {
-        trace?(TraceEvent(stage: "AI", message: "Redaction inference requested", metadata: ["extracted": "\(req.extractedText.count)", "ocr": "\(req.ocrText?.count ?? 0)"]))
+        trace?(TraceEvent(stage: "AI", message: "Redaction inference requested", metadata: ["extracted": "\(req.extractedText.count)", "ocr": "\(req.ocrText?.count ?? 0)"], aiMetadata: ["capability": Capability.redactInference.rawValue]))
 
         if localAIEnabled {
             let text = try await redactLocal(req)
-            trace?(TraceEvent(stage: "AI", message: "Redaction inference completed (local)", metadata: ["chars": "\(text.count)"]))
+            trace?(TraceEvent(stage: "AI", message: "Redaction inference completed (local)", metadata: ["chars": "\(text.count)"], aiMetadata: ["capability": Capability.redactInference.rawValue, "provenance": Provenance.localOnDevice.rawValue]))
             return AIResponse(text: text, provenance: .localOnDevice, warnings: ["Suggestions only."])
         }
 
         if cloudAIEnabled {
             let text = try await redactCloud(req)
-            trace?(TraceEvent(stage: "AI", message: "Redaction inference completed (cloud)", metadata: ["chars": "\(text.count)"]))
+            trace?(TraceEvent(stage: "AI", message: "Redaction inference completed (cloud)", metadata: ["chars": "\(text.count)"], aiMetadata: ["capability": Capability.redactInference.rawValue, "provenance": Provenance.cloud.rawValue]))
             return AIResponse(text: text, provenance: .cloud, warnings: ["Cloud output—verify before use."])
         }
 
@@ -142,7 +142,7 @@ final class AIService: ObservableObject {
 
     /// Explain why a duplicate cluster picked a "best" candidate.
     func explainCluster(text: String) async throws -> AIResponse {
-        trace?(TraceEvent(stage: "AI", message: "Cluster explanation requested", metadata: ["len": "\(text.count)"]))
+        trace?(TraceEvent(stage: "AI", message: "Cluster explanation requested", metadata: ["len": "\(text.count)"], aiMetadata: ["capability": Capability.clusterExplain.rawValue]))
         if localAIEnabled {
             let out = try await explainLocal(text)
             return AIResponse(text: out, provenance: .localOnDevice, warnings: [])
@@ -160,12 +160,12 @@ final class AIService: ObservableObject {
 
     func setCloudAIEnabled(_ enabled: Bool) {
         cloudAIEnabled = enabled
-        trace?(TraceEvent(stage: "AI", message: enabled ? "Cloud AI enabled" : "Cloud AI disabled"))
+        trace?(TraceEvent(stage: "AI", message: enabled ? "Cloud AI enabled" : "Cloud AI disabled", aiMetadata: ["capability": "settings", "cloud": enabled ? "on" : "off"]))
     }
 
     func setLocalAIEnabled(_ enabled: Bool) {
         localAIEnabled = enabled
-        trace?(TraceEvent(stage: "AI", message: enabled ? "Local AI enabled" : "Local AI disabled"))
+        trace?(TraceEvent(stage: "AI", message: enabled ? "Local AI enabled" : "Local AI disabled", aiMetadata: ["capability": "settings", "local": enabled ? "on" : "off"]))
     }
 
     // MARK: - Local / Cloud implementations
@@ -173,7 +173,7 @@ final class AIService: ObservableObject {
     private func summarizeLocal(_ req: SummarizeRequest) async throws -> String {
         // Prefer an injected local model if available.
         if let localRunner {
-            trace?(TraceEvent(stage: "AI", message: "Summarize using local runner", metadata: ["maxTokens": "\(req.maxTokens)"]))
+            trace?(TraceEvent(stage: "AI", message: "Summarize using local runner", metadata: ["maxTokens": "\(req.maxTokens)"], aiMetadata: ["capability": Capability.summarize.rawValue, "provenance": Provenance.localOnDevice.rawValue]))
             let system = "You are a careful legal research assistant. Summarize concisely and preserve key dates, parties, and docket identifiers."
             let user = "Audience: \(req.audience ?? "legal analyst")\n\nText:\n\(req.text)"
             return try await localRunner.generate(system: system, user: user, maxTokens: req.maxTokens)
@@ -198,7 +198,7 @@ final class AIService: ObservableObject {
     private func summarizeCloud(_ req: SummarizeRequest) async throws -> String {
         // Only called when cloud is enabled and local is disabled.
         if let cloudRunner {
-            trace?(TraceEvent(stage: "AI", message: "Summarize using cloud runner", metadata: ["maxTokens": "\(req.maxTokens)"]))
+            trace?(TraceEvent(stage: "AI", message: "Summarize using cloud runner", metadata: ["maxTokens": "\(req.maxTokens)"], aiMetadata: ["capability": Capability.summarize.rawValue, "provenance": Provenance.cloud.rawValue]))
             let system = "You are a careful legal research assistant. Summarize concisely and preserve key dates, parties, and docket identifiers."
             let user = "Audience: \(req.audience ?? "legal analyst")\n\nText:\n\(req.text)"
             return try await cloudRunner.generate(system: system, user: user, maxTokens: req.maxTokens)
@@ -211,7 +211,7 @@ final class AIService: ObservableObject {
     private func redactLocal(_ req: RedactionInferenceRequest) async throws -> String {
         // Prefer an injected local model if available.
         if let localRunner {
-            trace?(TraceEvent(stage: "AI", message: "Redaction inference using local runner"))
+            trace?(TraceEvent(stage: "AI", message: "Redaction inference using local runner", aiMetadata: ["capability": Capability.redactInference.rawValue, "provenance": Provenance.localOnDevice.rawValue]))
             let system = "You analyze legal documents. You do NOT guess private info. You identify likely redactions and propose safe next steps. Output valid JSON only."
             let user = Self.buildRedactionPrompt(extracted: req.extractedText, ocr: req.ocrText, hints: req.contextHints)
             return try await localRunner.generate(system: system, user: user, maxTokens: 900)
@@ -252,7 +252,7 @@ final class AIService: ObservableObject {
 
     private func redactCloud(_ req: RedactionInferenceRequest) async throws -> String {
         if let cloudRunner {
-            trace?(TraceEvent(stage: "AI", message: "Redaction inference using cloud runner"))
+            trace?(TraceEvent(stage: "AI", message: "Redaction inference using cloud runner", aiMetadata: ["capability": Capability.redactInference.rawValue, "provenance": Provenance.cloud.rawValue]))
             let system = "You analyze legal documents. You do NOT guess private info. You identify likely redactions and propose safe next steps. Output valid JSON only."
             let user = Self.buildRedactionPrompt(extracted: req.extractedText, ocr: req.ocrText, hints: req.contextHints)
             return try await cloudRunner.generate(system: system, user: user, maxTokens: 900)
@@ -262,7 +262,7 @@ final class AIService: ObservableObject {
 
     private func explainLocal(_ text: String) async throws -> String {
         if let localRunner {
-            trace?(TraceEvent(stage: "AI", message: "Cluster explanation using local runner"))
+            trace?(TraceEvent(stage: "AI", message: "Cluster explanation using local runner", aiMetadata: ["capability": Capability.clusterExplain.rawValue, "provenance": Provenance.localOnDevice.rawValue]))
             let system = "You explain duplicate clustering decisions for legal research. Be precise and cite the provided evidence."
             let user = "Explain why the best candidate was selected. Evidence:\n\(text)"
             return try await localRunner.generate(system: system, user: user, maxTokens: 450)
@@ -282,7 +282,7 @@ final class AIService: ObservableObject {
 
     private func explainCloud(_ text: String) async throws -> String {
         if let cloudRunner {
-            trace?(TraceEvent(stage: "AI", message: "Cluster explanation using cloud runner"))
+            trace?(TraceEvent(stage: "AI", message: "Cluster explanation using cloud runner", aiMetadata: ["capability": Capability.clusterExplain.rawValue, "provenance": Provenance.cloud.rawValue]))
             let system = "You explain duplicate clustering decisions for legal research. Be precise and cite the provided evidence."
             let user = "Explain why the best candidate was selected. Evidence:\n\(text)"
             return try await cloudRunner.generate(system: system, user: user, maxTokens: 450)
