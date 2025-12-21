@@ -21,6 +21,7 @@ final class DocumentModel {
     var ocrTextPath: String?
     var thumbnailPath: String?
     var dHash: String?
+    var indexingVersion: Int
 
     // Bookkeeping
     var createdAt: Date
@@ -39,6 +40,7 @@ final class DocumentModel {
         self.ocrTextPath = nil
         self.thumbnailPath = nil
         self.dHash = nil
+        self.indexingVersion = 0
 
         self.createdAt = Date()
         self.lastIndexedAt = nil
