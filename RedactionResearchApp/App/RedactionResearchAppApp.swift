@@ -22,7 +22,7 @@ struct RedactionResearchAppApp: App {
     init() {
         do {
             let container = try ModelContainer(for: CaseModel.self, DocumentModel.self, AuditEventModel.self)
-            _modelContainer = State(initialValue: container)
+            self.container = container
             _traceStore = StateObject(wrappedValue: TraceStore(container: container))
             _initializationError = State(initialValue: nil)
         } catch {
@@ -30,7 +30,7 @@ struct RedactionResearchAppApp: App {
             let schema = Schema([CaseModel.self, DocumentModel.self, AuditEventModel.self])
             let config = ModelConfiguration(isStoredInMemoryOnly: true)
             let container = try! ModelContainer(for: schema, configurations: config)
-            _modelContainer = State(initialValue: container)
+            self.container = container
             _traceStore = StateObject(wrappedValue: TraceStore(container: container))
             _initializationError = State(initialValue: "Failed to initialize data store: \(error.localizedDescription). Running in memory-only mode. Data will not be persisted.")
         }
@@ -49,7 +49,7 @@ struct RedactionResearchAppApp: App {
                     Text(initializationError ?? "")
                 }
         }
-        .modelContainer(for: [CaseModel.self, DocumentModel.self, ClusterModel.self])
+        .modelContainer(container)
 
         // Secondary window: live execution trace
         WindowGroup("Execution Trace", id: "execution-trace") {
@@ -83,12 +83,8 @@ struct RedactionResearchAppApp: App {
 final class TraceStore: ObservableObject {
     @Published private(set) var events: [AuditEventModel] = []
 
+    private let container: ModelContainer
     private let context: ModelContext
-
-    init(container: ModelContainer) {
-        self.context = ModelContext(container)
-        Task { await reload() }
-    }
 
     init(container: ModelContainer) {
         self.container = container
@@ -99,16 +95,15 @@ final class TraceStore: ObservableObject {
     func loadPersisted(limit: Int = 5000) {
         let descriptor = FetchDescriptor<AuditEventModel>(
             predicate: nil,
-            sortBy: [SortDescriptor(\.timestamp, order: .forward)]
+            sortBy: [SortDescriptor(\.createdAt, order: .forward)]
         )
         if let fetched = try? context.fetch(descriptor) {
-            let trimmed = fetched.suffix(limit)
-            events = trimmed.map { TraceEvent(model: $0) }
+            events = Array(fetched.suffix(limit))
         }
     }
 
     func log(_ event: TraceEvent) {
-        let model = AuditEventModel(event)
+        let model = event.asModel()
         context.insert(model)
         do {
             try context.save()
@@ -116,17 +111,6 @@ final class TraceStore: ObservableObject {
             print("Failed to persist audit event: \(error)")
         }
         events.append(model)
-    }
-
-    func reload() async {
-        let descriptor = FetchDescriptor<AuditEventModel>(sortBy: [SortDescriptor(\.createdAt)])
-        if let items = try? context.fetch(descriptor) {
-            events = items
-        }
-
-        let model = event.asModel()
-        context.insert(model)
-        try? context.save()
     }
 
     func clear() {
@@ -155,7 +139,7 @@ final class TraceStore: ObservableObject {
             let ts = df.string(from: ev.createdAt)
             let fp = ev.filePath.map { "\n  file: \($0)" } ?? ""
             let sha = ev.sha256.map { "\n  sha256: \($0)" } ?? ""
-            let derived = ev.derivedPath.map { "\n  derived: \($0)" } ?? ""
+            let derived = ev.derivedFolderPath.map { "\n  derived: \($0)" } ?? ""
             let thumb = ev.thumbnailPath.map { "\n  thumb: \($0)" } ?? ""
             let meta: String
             if ev.metadata.isEmpty {
