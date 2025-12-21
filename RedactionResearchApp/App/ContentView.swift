@@ -4,6 +4,7 @@ import SwiftData
 #if canImport(AppKit)
 import AppKit
 #endif
+import SwiftData
 
 @MainActor
 final class ProcessingStatus: ObservableObject {
@@ -35,6 +36,8 @@ struct ContentView: View {
     @Query(sort: \DocumentModel.createdAt, order: .reverse) private var documents: [DocumentModel]
 
     @ObservedObject private var ai = AIService.shared
+
+    private let clusterReconstructor = ClusterReconstructionService()
 
     // Active case (set by SidebarView). Empty means none selected.
     @AppStorage("workspace.selectedCaseID") private var selectedCaseIDString: String = ""
@@ -70,6 +73,7 @@ struct ContentView: View {
     @State private var clusterAILoading: Set<UUID> = []
     @State private var expandedClusters: Set<UUID> = []
     @State private var showFullClusterDetail: Set<UUID> = []
+    @State private var clusterSuggestions: [UUID: [ClusterSuggestion]] = [:]
 
     private let indexer = IndexingService()
     private let duplicateAnalyzer = DuplicateAnalysisService()
@@ -108,6 +112,7 @@ struct ContentView: View {
                     clusterAILoading: clusterAILoading,
                     expandedClusters: expandedClusters,
                     showFullClusterDetail: showFullClusterDetail,
+                    clusterSuggestions: clusterSuggestions,
                     onAnalyze: { analyzeDuplicates() },
                     onExplainCluster: { cluster in
                         Task { await explainCluster(cluster) }
@@ -491,6 +496,7 @@ struct ContentView: View {
             await MainActor.run {
                 isAnalyzingDuplicates = true
                 duplicatesStatus = "Analyzing duplicates…"
+                clusterSuggestions = [:]
             }
         } else {
             await MainActor.run {
@@ -519,6 +525,18 @@ struct ContentView: View {
             )
         }
         let clusters = await duplicateAnalyzer.analyze(documents: docs, nearThreshold: 10)
+
+        if let caseID = selectedCaseID {
+            let suggestions = await clusterReconstructor.reconstruct(
+                clusters: clusters,
+                documents: docs,
+                caseID: caseID,
+                modelContext: modelContext
+            )
+            await MainActor.run {
+                clusterSuggestions = suggestions
+            }
+        }
 
         await MainActor.run {
             duplicateClusters = clusters
@@ -745,6 +763,7 @@ private struct DuplicatesPanel: View {
     let clusterAILoading: Set<UUID>
     let expandedClusters: Set<UUID>
     let showFullClusterDetail: Set<UUID>
+    let clusterSuggestions: [UUID: [ClusterSuggestion]]
     let onAnalyze: () -> Void
     let onExplainCluster: (DuplicateAnalysisService.DuplicateCluster) -> Void
     let onToggleExpand: (UUID) -> Void
@@ -777,8 +796,10 @@ private struct DuplicatesPanel: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(clusters) { cluster in
+                            let suggestions = clusterSuggestions[cluster.id] ?? []
                             ClusterCard(
                                 cluster: cluster,
+                                suggestions: suggestions,
                                 aiText: clusterAIText[cluster.id],
                                 isLoadingAI: clusterAILoading.contains(cluster.id),
                                 isExpanded: expandedClusters.contains(cluster.id),
@@ -806,6 +827,7 @@ private struct DuplicatesPanel: View {
 
 private struct ClusterCard: View {
     let cluster: DuplicateAnalysisService.DuplicateCluster
+    let suggestions: [ClusterSuggestion]
     let aiText: String?
     let isLoadingAI: Bool
     let isExpanded: Bool
@@ -871,6 +893,56 @@ private struct ClusterCard: View {
                 .padding(.vertical, 2)
             }
 
+            if isExpanded && !suggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Cluster suggestions")
+                        .font(.subheadline.weight(.semibold))
+
+                    ForEach(suggestions) { suggestion in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Merged text from best candidates")
+                                        .font(.caption)
+                                    Text("Basis: \(suggestion.basisFile)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button {
+                                    copyToClipboard(suggestion.mergedText)
+                                } label: {
+                                    Label("Copy suggestion", systemImage: "doc.on.doc")
+                                }
+                                .buttonStyle(.bordered)
+                            }
+
+                            Text(suggestion.mergedText)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .padding(8)
+                                .background(.gray.opacity(0.08))
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                            if !suggestion.evidence.isEmpty {
+                                let citations = suggestion.evidence.map { ev -> String in
+                                    var parts: [String] = [ev.sourceFile]
+                                    if let page = ev.page { parts.append("p. \(page)") }
+                                    if let line = ev.line { parts.append("line \(line)") }
+                                    return parts.joined(separator: ", ")
+                                }
+                                Text("Citations: " + citations.joined(separator: " • "))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(8)
+                        .background(.blue.opacity(0.05))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                }
+            }
+
             if isExpanded {
                 let text = aiText ?? "No AI explanation yet."
                 let short = String(text.prefix(500))
@@ -905,5 +977,13 @@ private struct ClusterCard: View {
         } catch {
             return nil
         }
+    }
+
+    private func copyToClipboard(_ text: String) {
+        #if canImport(AppKit)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        #endif
     }
 }
