@@ -365,20 +365,6 @@ struct TraceWindowView: View {
         #endif
     }
 
-    private func exportPDF() {
-        #if canImport(AppKit)
-        let panel = NSSavePanel()
-        panel.allowedFileTypes = ["pdf"]
-        panel.nameFieldStringValue = "ExecutionTrace.pdf"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 720, height: 0))
-        textView.string = trace.exportText(events: filtered)
-        textView.sizeToFit()
-        let data = textView.dataWithPDF(inside: textView.bounds)
-        try? data.write(to: url)
-        #endif
-    }
 }
 
 struct TraceDetailView: View {
