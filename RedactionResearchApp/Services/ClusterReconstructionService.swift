@@ -70,7 +70,10 @@ final class ClusterReconstructionService {
         }
 
         let mergedText = merged.joined(separator: "\n")
-        let basisFile = members.first(where: { $0.0.isBestCandidate })?.0.fileName ?? cluster.members.first?.fileName ?? ""
+        let basisFile = members.first(where: { $0.0.isBestCandidate })?.0.fileName 
+            ?? members.first?.0.fileName 
+            ?? cluster.members.first?.fileName 
+            ?? "Unknown"
 
         return ClusterSuggestion(
             mergedText: mergedText,

@@ -1,7 +1,5 @@
 import SwiftUI
-#if canImport(AppKit)
 import AppKit
-#endif
 
 struct ProgressScratchpadView: View {
     @ObservedObject var processing: ProcessingStatus
