@@ -35,7 +35,7 @@ struct SidebarView: View {
                             Image(systemName: (c.id == selectedCaseID) ? "folder.fill" : "folder")
                                 .foregroundStyle(.secondary)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(c.title)
+                                Text(c.name)
                                     .lineLimit(1)
                                 if let created = c.createdAt as Date? {
                                     Text(created.formatted(date: .abbreviated, time: .shortened))

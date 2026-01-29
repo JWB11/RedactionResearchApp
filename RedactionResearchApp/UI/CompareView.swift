@@ -215,16 +215,24 @@ struct CompareView: View {
         // In a real implementation, this would load the actual document content
         // For now, we'll use placeholder text based on document metadata
         if let left = leftDocument {
-            leftText = "Document: \(left.fileName)\nPath: \(left.filePath)\nSHA256: \(left.sha256 ?? "N/A")\n\nExtracted Text: \(left.extractedText ?? "(No text extracted)")"
+            let extractedText = loadExtractedText(from: left)
+            leftText = "Document: \(left.fileName)\nPath: \(left.localPath)\nSHA256: \(left.sha256 ?? "N/A")\n\nExtracted Text: \(extractedText ?? "(No text extracted)")"
         } else {
             leftText = ""
         }
 
         if let right = rightDocument {
-            rightText = "Document: \(right.fileName)\nPath: \(right.filePath)\nSHA256: \(right.sha256 ?? "N/A")\n\nExtracted Text: \(right.extractedText ?? "(No text extracted)")"
+            let extractedText = loadExtractedText(from: right)
+            rightText = "Document: \(right.fileName)\nPath: \(right.localPath)\nSHA256: \(right.sha256 ?? "N/A")\n\nExtracted Text: \(extractedText ?? "(No text extracted)")"
         } else {
             rightText = ""
         }
+    }
+    
+    private func loadExtractedText(from document: DocumentModel) -> String? {
+        guard let path = document.extractedTextPath else { return nil }
+        let url = URL(fileURLWithPath: path)
+        return try? String(contentsOf: url, encoding: .utf8)
     }
 
     private func computeDifferences() {

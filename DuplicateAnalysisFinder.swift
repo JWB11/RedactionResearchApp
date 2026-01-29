@@ -306,20 +306,21 @@ actor DuplicateAnalysisService {
             return $0.fileName.localizedCaseInsensitiveCompare($1.fileName) == .orderedAscending
         }
 
-        if let first = raw.first {
-            raw[0] = ClusterMember(
-                id: first.id,
-                fileName: first.fileName,
-                localPath: first.localPath,
-                sha256: first.sha256,
-                dHashHex: first.dHashHex,
-                extractedTextChars: first.extractedTextChars,
-                ocrTextChars: first.ocrTextChars,
-                byteSize: first.byteSize,
-                completenessScore: first.completenessScore,
-                isBestCandidate: true
-            )
-        }
+        guard !raw.isEmpty else { return [] }
+        
+        let first = raw[0]
+        raw[0] = ClusterMember(
+            id: first.id,
+            fileName: first.fileName,
+            localPath: first.localPath,
+            sha256: first.sha256,
+            dHashHex: first.dHashHex,
+            extractedTextChars: first.extractedTextChars,
+            ocrTextChars: first.ocrTextChars,
+            byteSize: first.byteSize,
+            completenessScore: first.completenessScore,
+            isBestCandidate: true
+        )
 
         return raw
     }
